@@ -4,17 +4,6 @@ import jakarta.validation.constraints.Email
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
 
-// Data Transfer Object for login requests
-//data class LoginRequest(
-//
-//    @field:NotBlank(message = "Email is required")
-//    @field:Email(message = "Email should be valid")
-//    val email: String,
-//
-//    @field:NotBlank(message = "Password is required")
-//    val password: String
-//)
-
 data class LoginRequest(
     @field:Email
     @field:NotBlank
@@ -26,7 +15,6 @@ data class LoginRequest(
 )
 
 data class RegistrationRequest(
-
     @field:Email
     @field:NotBlank
     val email: String,
@@ -37,7 +25,9 @@ data class RegistrationRequest(
 
     @field:NotBlank
     @field:Size(min = 8, max = 100)
-    val confirmPassword: String
+    val confirmPassword: String,
+
+    val roles: Set<String>? = null  // Optional: allow specifying roles during registration
 )
 
 data class RefreshTokenRequest(

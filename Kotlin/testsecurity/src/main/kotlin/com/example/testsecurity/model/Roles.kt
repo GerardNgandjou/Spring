@@ -6,14 +6,18 @@ import java.util.*
 
 @Entity
 @Table(name = "roles")
-data class Roles(
+class Roles(
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    val id: UUID? = null,
+    var id: UUID? = null,
 
     @Column(unique = true, nullable = false)
-    val name: String,
+    var name: String = "",
 
     @Column(nullable = false)
-    val createdAt: Instant = Instant.now()
+    var createdAt: Instant = Instant.now(),
+
+    @ManyToMany(mappedBy = "roles")
+    var users: MutableSet<User> = mutableSetOf()
 )

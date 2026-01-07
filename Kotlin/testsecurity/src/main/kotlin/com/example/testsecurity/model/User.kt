@@ -8,37 +8,51 @@ import java.time.Instant
 
 //@NoArgsConstructor
 @Entity
-@Table(name = "users")  // PostgreSQL table name
+@Table(name = "users")
 class User(
+
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)  // Auto-increment ID
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long = 0,
-    
-    @Column(unique = true, nullable = false)  // Email must be unique and not null
+
+    @Column(unique = true, nullable = false)
     val email: String,
-    
-    @Column(nullable = false)  // Password cannot be null
+
+    @Column(nullable = false)
     var passwordHash: String,
-    
-    @Column(name = "created_at")
+
+    @Column(name = "created_at", nullable = false)
     val createdAt: Instant = Instant.now(),
-    
-    @Column(name = "updated_at")
+
+    @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now(),
-    
-    @ElementCollection(fetch = FetchType.EAGER)  // Load roles eagerly with user
-    @CollectionTable(name = "user_roles", joinColumns = [JoinColumn(name = "user_id")])
-    @Column(name = "role")
-    val roles: MutableSet<String> = mutableSetOf("USER")  // Default role
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(
+        name = "user_roles",
+        joinColumns = [JoinColumn(name = "user_id")],
+        inverseJoinColumns = [JoinColumn(name = "role_id")]
+    )
+    val roles: MutableSet<String> = mutableSetOf()
 ) : UserDetails {
 
-    constructor() : this(0, "", "", Instant.now(), Instant.now(), mutableSetOf("USER"))
+    constructor() : this(
+        id = 0,
+        email = "",
+        passwordHash = "",
+        createdAt = Instant.now(),
+        updatedAt = Instant.now(),
+        roles = mutableSetOf()
+    )
 
     // Spring Security UserDetails implementation
     override fun getAuthorities(): MutableCollection<out GrantedAuthority> {
-        return roles.map { SimpleGrantedAuthority(it) }.toMutableList()
+        return roles
+            .map { SimpleGrantedAuthority("ROLE_${it}") }
+            .toMutableList()
     }
-    
+
+
     override fun getUsername(): String = email
     
     override fun getPassword(): String = passwordHash

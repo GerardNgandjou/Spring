@@ -17,7 +17,6 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
-import io.github.cdimascio.dotenv.Dotenv
 
 @Service
 @Transactional
@@ -28,24 +27,30 @@ class AuthService(
     private val passwordEncoder: PasswordEncoder,
     private val refreshTokenRepository: RefreshTokenRepository? = null,
     private val roleRepository: RoleRepository? = null
-
 ) {
 
     companion object {
         private const val DEFAULT_USER_ROLE = "ROLE_USER"
     }
 
+    // Load Google OAuth credentials from environment variables
     private val googleClientId: String = System.getenv("GOOGLE_CLIENT_ID") ?: ""
     private val googleClientSecret: String = System.getenv("GOOGLE_CLIENT_SECRET") ?: ""
 
-
+    /**
+     * Debug method to print secrets (never use in production)
+     */
     fun printSecrets() {
         println("Google Client ID: $googleClientId")
         println("Google Client Secret: $googleClientSecret")
     }
 
-    // Authenticate user and generate JWT tokens
+    /**
+     * Authenticate a user using email and password.
+     * Generates JWT access and refresh tokens.
+     */
     fun authenticateUser(loginRequest: LoginRequest): AuthResponse {
+        // Authenticate user credentials
         val authentication = authenticationManager.authenticate(
             UsernamePasswordAuthenticationToken(
                 loginRequest.email,
@@ -55,13 +60,11 @@ class AuthService(
 
         val username = authentication.name ?: loginRequest.email
 
-        // Generate access token
+        // Generate JWT tokens
         val accessToken = jwtService.generateAccessToken(username)
-
-        // Generate refresh token
         val refreshToken = jwtService.generateRefreshToken(username)
 
-        // Store refresh token (optional - for token invalidation)
+        // Store refresh token for future invalidation
         refreshTokenRepository?.save(
             RefreshToken(
                 token = refreshToken,
@@ -77,44 +80,50 @@ class AuthService(
         )
     }
 
-    // Register a new user
+    /**
+     * Register a new user in the system.
+     * Performs password validation, uniqueness check, and role assignment.
+     */
     @Transactional
     fun registerUser(registrationRequest: RegistrationRequest): User {
-        // Validate password match
+        // Ensure passwords match
         if (registrationRequest.password != registrationRequest.confirmPassword) {
             throw BadCredentialsException("Passwords do not match")
         }
 
-        // Check if user already exists
+        // Check if the email is already registered
         if (userRepository.existsByEmail(registrationRequest.email)) {
             throw UserAlreadyExistsException("User with email ${registrationRequest.email} already exists")
         }
 
-        // Encode password
+        // Encode password securely
         val encodedPassword = passwordEncoder.encode(registrationRequest.password)
             ?: throw SecurityException("Failed to encode password")
 
-        // Get default role
+        // Fetch default role from DB or create it if missing
         val defaultRole = roleRepository?.findByName(DEFAULT_USER_ROLE)
             ?: Roles(name = DEFAULT_USER_ROLE)
 
-        // Create new user
+        // Create the new user entity
         val user = User(
             email = registrationRequest.email,
             passwordHash = encodedPassword,
-            roles = mutableSetOf("defaultRole"),
+            roles = mutableSetOf(defaultRole.name), // store actual role name
             createdAt = Instant.now(),
             updatedAt = Instant.now()
         )
 
-        // Save user to database
+        // Persist the user
         return userRepository.save(user).also {
-            // Send email verification (optional)
+            // Optional: Send email verification
             // emailService.sendVerificationEmail(it.email, it.id)
         }
     }
 
-    // Refresh access token using refresh token
+    /**
+     * Refresh access token using a valid refresh token.
+     * Optionally rotates the refresh token for security.
+     */
     @Transactional
     fun refreshAccessToken(refreshToken: String): AuthResponse {
         // Validate refresh token
@@ -122,19 +131,17 @@ class AuthService(
             throw InvalidTokenException("Invalid refresh token")
         }
 
-        // Check if refresh token exists in database (for invalidation)
+        // Check refresh token existence and expiration in database
         refreshTokenRepository?.findByToken(refreshToken)
             ?.takeIf { it.expiryDate.isAfter(Instant.now()) }
             ?: throw InvalidTokenException("Refresh token expired or not found")
 
-        // Extract username from refresh token
+        // Extract username from token
         val username = jwtService.extractUsername(refreshToken)
             ?: throw InvalidTokenException("Invalid refresh token payload")
 
-        // Generate new access token
+        // Generate new tokens
         val newAccessToken = jwtService.generateAccessToken(username)
-
-        // Optionally rotate refresh token
         val newRefreshToken = jwtService.generateRefreshToken(username)
 
         // Update refresh token in database
@@ -147,59 +154,71 @@ class AuthService(
         )
     }
 
-    // Invalidate token (logout)
+    /**
+     * Logout user by invalidating refresh token
+     */
     @Transactional
     fun invalidateToken(refreshToken: String) {
         refreshTokenRepository?.deleteByToken(refreshToken)
     }
 
-    // Get user profile
+    /**
+     * Retrieve a user's profile by email
+     */
     fun getUserProfile(email: String): UserProfileResponse {
         val user = userRepository.findByEmail(email)
-            .orElseThrow { UsernameNotFoundException("User not found with email: $email") }
+            ?: throw { UsernameNotFoundException("User not found with email: $email") } as Throwable
 
         return UserProfileResponse(
-            id = user.id.toString(),
+            id = user.id,
             email = user.email,
-            roles = user.roles.map { it }
+            roles = user.roles.toList()
         )
     }
 
-    // Get all users
+    /**
+     * Get all registered users
+     */
     fun getAllUsers(): List<UserResponse> {
         return userRepository.findAll().map { user ->
             UserResponse(
-                id = user.id.toString(),
+                id = user.id,
                 email = user.email,
-                roles = user.roles.map { it },
+                roles = user.roles.toList(),
                 enabled = user.isEnabled,
-                createdAt = user.createdAt
+                createdAt = user.createdAt,
+                updatedAt = user.updatedAt
             )
         }
     }
 
-    // Verify email (optional)
+    /**
+     * Verify email using token (optional)
+     */
     @Transactional
     fun verifyEmail(userId: String, token: String): Boolean {
         // Implementation for email verification
         return true
     }
 
-    // Request password reset (optional)
+    /**
+     * Request a password reset
+     */
     fun requestPasswordReset(email: String) {
         val user = userRepository.findByEmail(email)
-            .orElseThrow { UsernameNotFoundException("User not found with email: $email") }
+            ?: throw { UsernameNotFoundException("User not found with email: $email") } as Throwable
 
         val resetToken = jwtService.generatePasswordResetToken(user.email)
 
-        // Store reset token with expiry
-        // Send email with reset link
+        // TODO: Store token and send email
     }
 
-    // Reset password (optional)
+    /**
+     * Reset password using a valid reset token
+     */
     @Transactional
     fun resetPassword(token: String, newPassword: String): Boolean {
-        // Validate reset token
+        // Validate token
         if (!jwtService.validateToken(token)) {
             throw InvalidTokenException("Invalid or expired reset token")
         }
@@ -208,14 +227,14 @@ class AuthService(
             ?: throw InvalidTokenException("Invalid reset token")
 
         val user = userRepository.findByEmail(email)
-            .orElseThrow { UsernameNotFoundException("User not found") }
+            ?: throw { UsernameNotFoundException("User not found with email: $email") } as Throwable
 
         // Update password
         user.passwordHash = passwordEncoder.encode(newPassword).toString()
         user.updatedAt = Instant.now()
         userRepository.save(user)
 
-        // Invalidate all user sessions/tokens (optional)
+        // Invalidate all user sessions
         refreshTokenRepository?.deleteAllByUsername(email)
 
         return true
