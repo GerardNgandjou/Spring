@@ -49,10 +49,8 @@ class QuizService(
                 q.option3,
                 q.option4
             )
-
             questionForUser.add(qw)
         }
-
         return ResponseEntity(questionForUser, HttpStatus.OK) // Returns 200 OK with wrapped questions
     }
 
