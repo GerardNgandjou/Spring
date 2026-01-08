@@ -27,7 +27,6 @@ import java.time.Instant
 @EnableMethodSecurity
 class SecurityConfiguration(
     private val jwtAuthenticationFilter: JwtAuthenticationFilter
-//    private val authenticationMetricsFilter: AuthenticationMetricsFilter
 ) {
 
 
@@ -87,7 +86,6 @@ class SecurityConfiguration(
             }
 
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)
-//            .addFilterAfter(authenticationMetricsFilter, JwtAuthenticationFilter::class.java)
 
         return http.build()
     }

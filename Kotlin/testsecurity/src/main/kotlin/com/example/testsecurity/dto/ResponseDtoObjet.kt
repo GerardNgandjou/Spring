@@ -11,18 +11,18 @@ data class AuthResponse(
 )
 
 data class UserResponse(
-    val id: Long,  // Changed from String to Long to match User.id type
+    val id: Long,
     val email: String,
-    val roles: List<String>,  // Changed to return full role objects
+    val roles: String, // <- change from List<String> to List<RoleResponse>
     val enabled: Boolean,
     val createdAt: Instant,
-    val updatedAt: Instant  // Added to include all user fields
+    val updatedAt: Instant
 )
 
 data class UserProfileResponse(
     val id: Long,  // Changed from String to Long
     val email: String,
-    val roles: List<String>  // Role names for simple profile view
+    val roles: String  // Role names for simple profile view
 )
 
 data class RoleResponse(

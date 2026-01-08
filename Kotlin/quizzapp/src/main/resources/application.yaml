@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: quizzapp
+  datasource:
+    url: jdbc:postgresql://localhost:5432/quizzapp  # PostgreSQL connection URL
+    username: postgres                             # Your PostgreSQL username
+    password: root                             # Your PostgreSQL password
+    driver-class-name: org.postgresql.Driver
+
+    # Show SQL in logs for debugging
+    jpa:
+      hibernate:
+        ddl-auto: update                             # Automatically update schema
+      properties:
+        hibernate:
+          dialect: org.hibernate.dialect.PostgreSQLDialect
+      show-sql: true

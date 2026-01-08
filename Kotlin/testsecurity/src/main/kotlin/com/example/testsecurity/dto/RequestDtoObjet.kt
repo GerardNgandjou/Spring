@@ -11,7 +11,10 @@ data class LoginRequest(
 
     @field:NotBlank
     @field:Size(min = 8, max = 100)
-    val password: String
+    val password: String,
+
+    @field:NotBlank
+    val role: String
 )
 
 data class RegistrationRequest(
@@ -27,7 +30,7 @@ data class RegistrationRequest(
     @field:Size(min = 8, max = 100)
     val confirmPassword: String,
 
-    val roles: Set<String>? = null  // Optional: allow specifying roles during registration
+    val roles: String  // Optional: allow specifying roles during registration
 )
 
 data class RefreshTokenRequest(

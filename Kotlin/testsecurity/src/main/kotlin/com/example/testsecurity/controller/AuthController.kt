@@ -22,7 +22,7 @@ class AuthController(
         @Valid @RequestBody loginRequest: LoginRequest
     ): ResponseEntity<AuthResponse> {
         val token = authService.authenticateUser(loginRequest)
-        return ResponseEntity.ok(AuthResponse(token.toString()))
+        return ResponseEntity.ok().build()
     }
 
     // Registration endpoint
@@ -38,7 +38,8 @@ class AuthController(
         val token = authService.authenticateUser(
             LoginRequest(
                 email = registrationRequest.email,
-                password = registrationRequest.password
+                password = registrationRequest.password,
+                role = registrationRequest.roles
             )
         )
         return ResponseEntity.status(HttpStatus.CREATED)

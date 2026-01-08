@@ -4,10 +4,15 @@ spring:
 
   # src/main/resources/application.yml
   datasource:
-    url: jdbc:postgresql://localhost:5432/authentification  # PostgreSQL connection URL
+    url: jdbc:postgresql://localhost:5432/authentification?sslmode=disable  # PostgreSQL connection URL
     username: postgres                             # Your PostgreSQL username
     password: root                             # Your PostgreSQL password
     driver-class-name: org.postgresql.Driver
+#    hikari:
+#      pool-name: HikariPool
+#      shutdown-timeout: 1000
+#  lifecycle:
+#    timeout-per-shutdown-phase: 30s
 
   # Show SQL in logs for debugging
   jpa:

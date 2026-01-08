@@ -4,10 +4,8 @@ import com.example.testsecurity.dto.*
 import com.example.testsecurity.execption.InvalidTokenException
 import com.example.testsecurity.execption.UserAlreadyExistsException
 import com.example.testsecurity.model.RefreshToken
-import com.example.testsecurity.model.Roles
 import com.example.testsecurity.model.User
 import com.example.testsecurity.repository.RefreshTokenRepository
-import com.example.testsecurity.repository.RoleRepository
 import com.example.testsecurity.repository.UserRepository
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.authentication.BadCredentialsException
@@ -25,8 +23,7 @@ class AuthService(
     private val userRepository: UserRepository,
     private val jwtService: JwtService,
     private val passwordEncoder: PasswordEncoder,
-    private val refreshTokenRepository: RefreshTokenRepository? = null,
-    private val roleRepository: RoleRepository? = null
+    private val refreshTokenRepository: RefreshTokenRepository? = null
 ) {
 
     companion object {
@@ -100,24 +97,17 @@ class AuthService(
         val encodedPassword = passwordEncoder.encode(registrationRequest.password)
             ?: throw SecurityException("Failed to encode password")
 
-        // Fetch default role from DB or create it if missing
-        val defaultRole = roleRepository?.findByName(DEFAULT_USER_ROLE)
-            ?: Roles(name = DEFAULT_USER_ROLE)
-
         // Create the new user entity
         val user = User(
             email = registrationRequest.email,
             passwordHash = encodedPassword,
-            roles = mutableSetOf(defaultRole.name), // store actual role name
+            roles = "USER", // store actual role name
             createdAt = Instant.now(),
             updatedAt = Instant.now()
         )
 
         // Persist the user
-        return userRepository.save(user).also {
-            // Optional: Send email verification
-            // emailService.sendVerificationEmail(it.email, it.id)
-        }
+        return userRepository.save(user)
     }
 
     /**
@@ -172,7 +162,7 @@ class AuthService(
         return UserProfileResponse(
             id = user.id,
             email = user.email,
-            roles = user.roles.toList()
+            roles = user.roles
         )
     }
 
@@ -184,7 +174,7 @@ class AuthService(
             UserResponse(
                 id = user.id,
                 email = user.email,
-                roles = user.roles.toList(),
+                roles = user.roles,
                 enabled = user.isEnabled,
                 createdAt = user.createdAt,
                 updatedAt = user.updatedAt
@@ -209,8 +199,6 @@ class AuthService(
             ?: throw { UsernameNotFoundException("User not found with email: $email") } as Throwable
 
         val resetToken = jwtService.generatePasswordResetToken(user.email)
-
-        // TODO: Store token and send email
     }
 
     /**

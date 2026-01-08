@@ -27,13 +27,8 @@ class User(
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now(),
 
-    @ManyToMany(fetch = FetchType.EAGER)
-    @JoinTable(
-        name = "user_roles",
-        joinColumns = [JoinColumn(name = "user_id")],
-        inverseJoinColumns = [JoinColumn(name = "role_id")]
-    )
-    val roles: MutableSet<String> = mutableSetOf()
+    @Column(name = "role", nullable = false)
+    val roles: String
 ) : UserDetails {
 
     constructor() : this(
@@ -42,7 +37,7 @@ class User(
         passwordHash = "",
         createdAt = Instant.now(),
         updatedAt = Instant.now(),
-        roles = mutableSetOf()
+        roles = ""
     )
 
     // Spring Security UserDetails implementation
@@ -51,7 +46,6 @@ class User(
             .map { SimpleGrantedAuthority("ROLE_${it}") }
             .toMutableList()
     }
-
 
     override fun getUsername(): String = email
     
