@@ -1,8 +1,7 @@
 package com.reli237.quizzapp.model
 
+// Data transfer object for quiz responses (not a JPA entity)
 data class Response(
-    val id: Long,
-    val response: String
-) {
-
-}
+    val id: Long, // ID of the question being answered
+    val response: String // User's selected answer
+)
