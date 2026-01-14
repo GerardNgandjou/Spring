@@ -16,15 +16,25 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
+  sql:
+    init:
+      mode: never
+
 logging:
   level:
     org.springframework.security: trace
     org.springframework.web: debug
 
 app:
-  frontend-url: http://127.0.0.1:5173
+  frontend-url: http://localhost:5173/
   secret-key: 9f8a7c6d5e4b3a2f9f8a7c6d5e4b3a2f
   expiration-time: 86400000
 
 server:
   port: 8750
+  ssl:
+    enabled: true
+    key-store: classpath:keystore.p12
+    key-store-password: root1234
+    key-store-type: PKCS12
+    key-alias: localhost

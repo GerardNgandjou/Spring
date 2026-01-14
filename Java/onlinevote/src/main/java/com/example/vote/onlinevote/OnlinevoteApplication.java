@@ -7,8 +7,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 
 @SpringBootApplication
-@EnableJpaRepositories(basePackages = "com.example.vote.onlinevote.repository")
-@EntityScan(basePackages = "com.example.vote.onlinevote.model")
+//@EnableJpaRepositories(basePackages = "com.example.vote.onlinevote.repository")
+//@EntityScan(basePackages = "com.example.vote.onlinevote.model")
 public class OnlinevoteApplication {
 
     public static void main(String[] args) {

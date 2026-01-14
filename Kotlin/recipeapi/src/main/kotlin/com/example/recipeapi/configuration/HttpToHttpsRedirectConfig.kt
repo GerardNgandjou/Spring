@@ -35,7 +35,7 @@ class HttpToHttpsRedirectConfig {
         connector.scheme = "http"
         connector.port = 8080
         connector.secure = false
-        connector.redirectPort = 8443
+        connector.redirectPort = 8750
         return connector
     }
 }
