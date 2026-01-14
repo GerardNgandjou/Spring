@@ -4,7 +4,7 @@ import {useNavigate} from "react-router-dom";
 
 const RegisterForm: React.FC = () => {
     const [formData, setFormData] = useState<UserRequest>({
-        username: '',
+        unaername: '',
         password: ''
     });
 
@@ -45,14 +45,14 @@ const RegisterForm: React.FC = () => {
 
             <form onSubmit={handleSubmit}>
                 <div className="mb-4">
-                    <label className="block text-gray-700 mb-2" htmlFor="username">
-                        Username
+                    <label className="block text-gray-700 mb-2" htmlFor="unaername">
+                        unaername
                     </label>
                     <input
                         type="text"
-                        id="username"
-                        name="username"
-                        value={formData.username}
+                        id="unaername"
+                        name="unaername"
+                        value={formData.unaername}
                         onChange={handleChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                         required

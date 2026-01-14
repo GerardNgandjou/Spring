@@ -69,6 +69,16 @@ export interface RecipeFilters {
     maxCookingTime?: number;
 }
 
+// services/auth.ts
+// export const register = async (): Promise<any> => {
+//   const response = await api.post('/auth/register', {
+//     unaername: 'mreu@gmail.com',
+//     password: 'root',
+//   });
+//   return response.data;
+// };
+
+
 export const AuthService = {
     register: async (userData: UserRequest): Promise<any> => {
         const response = await api.post(`/auth/register`, userData);

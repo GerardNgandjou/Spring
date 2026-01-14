@@ -26,7 +26,7 @@ logging:
     org.springframework.web: debug
 
 app:
-  frontend-url: http://localhost:5173/
+  frontend-url: http://localhost:5174/
   secret-key: 9f8a7c6d5e4b3a2f9f8a7c6d5e4b3a2f
   expiration-time: 86400000
 
