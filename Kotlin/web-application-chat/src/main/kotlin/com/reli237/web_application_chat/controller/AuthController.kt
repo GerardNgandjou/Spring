@@ -5,6 +5,8 @@ import com.reli237.web_application_chat.security.JwtProvider
 import com.reli237.web_application_chat.service.UsersService
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import jakarta.servlet.http.HttpSession
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -16,6 +18,10 @@ class AuthController(
     private val usersService: UsersService,
     private val jwtProvider: JwtProvider
 ) {
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(AuthController::class.java)
+    }
 
     /**
      * Register a new user
@@ -72,45 +78,61 @@ class AuthController(
      */
     @PostMapping("/login")
     fun login(
-        @RequestBody
-        request: UserDto.UserLoginRequest
+        @RequestBody request: UserDto.UserLoginRequest,
+        httpSession: HttpSession
     ): ResponseEntity<ApiResponse<LoginResponseDto>> {
         return try {
+            // Validate input
             if (request.email.isBlank() || request.password.isBlank()) {
-                ResponseEntity.badRequest()
+                return ResponseEntity.badRequest()
                     .body(ApiResponse(
                         success = false,
                         message = "Email and password are required",
                         data = null
                     ))
-            } else {
-                // Authenticate user credentials
-                val user = usersService.authenticateUser(request)
-
-                // Generate JWT token with user claims (ID, email, and role)
-                val token = jwtProvider.generateTokenWithClaims(
-                    userId = user.id,
-                    email = user.email,
-                    role = user.role.toString()
-                )
-
-                // Calculate token expiration time in seconds
-                val expiresIn = jwtProvider.getTokenExpirationSeconds()
-
-                val loginResponse = LoginResponseDto(
-                    user = user,
-                    token = token,
-                    tokenType = "Bearer",
-                    expiresIn = expiresIn
-                )
-
-                ResponseEntity.ok()
-                    .body(ApiResponse(
-                        success = true,
-                        message = "Login successful",
-                        data = loginResponse
-                    ))
             }
+
+            // Authenticate user credentials
+            val user = usersService.authenticateUser(request)
+
+            // Generate JWT token with user claims
+            val token = jwtProvider.generateTokenWithClaims(
+                userId = user.id,
+                email = user.email,
+                role = user.role.toString()
+            )
+
+            // Generate session ID (Spring automatically creates it)
+            val sessionId = httpSession.id
+
+            // Store user info in session
+            httpSession.setAttribute("userId", user.id)
+            httpSession.setAttribute("email", user.email)
+            httpSession.setAttribute("role", user.role.toString())
+            httpSession.setAttribute("loginTime", System.currentTimeMillis())
+
+            // Set session timeout (30 minutes)
+            httpSession.maxInactiveInterval = 30 * 60
+
+            // Calculate token expiration
+            val expiresIn = jwtProvider.getTokenExpirationSeconds()
+
+            val loginResponse = LoginResponseDto(
+                user = user,
+                token = token,
+                tokenType = "Bearer",
+                expiresIn = expiresIn,
+                sessionId = sessionId  // Include sessionId in response
+            )
+
+            ResponseEntity.ok()
+                .header("X-Session-Id", sessionId)  // Also send as header
+                .body(ApiResponse(
+                    success = true,
+                    message = "Login successful",
+                    data = loginResponse
+                ))
+
         } catch (e: IllegalArgumentException) {
             ResponseEntity.badRequest()
                 .body(ApiResponse(
@@ -126,6 +148,7 @@ class AuthController(
                     data = null
                 ))
         } catch (e: Exception) {
+            logger.error("Login error", e)
             ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse(
                     success = false,
@@ -472,7 +495,8 @@ data class LoginResponseDto(
     val user: UserDto.UserResponse,
     val token: String,
     val tokenType: String,
-    val expiresIn: Long
+    val expiresIn: Long,
+    val sessionId: String
 )
 
 data class EmailAvailabilityDto(

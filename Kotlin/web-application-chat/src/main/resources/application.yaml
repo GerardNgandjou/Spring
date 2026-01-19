@@ -9,6 +9,9 @@ spring:
     password: root
     driver-class-name: org.postgresql.Driver
 
+  session:
+    store-type: jdbc
+
   # Hibernate properties
   jpa:
     database: postgresql
@@ -26,6 +29,12 @@ websocket:
   allowed-origins: "*"
 
 server:
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        secure: true
   port: 8081
   error:
     include-message: always

@@ -46,17 +46,21 @@ class JwtProvider(
     /**
      * Generate JWT token with custom claims
      */
-    fun generateTokenWithClaims(userId: Long, email: String, role: String): String {
+    fun generateTokenWithClaims(
+        userId: Long,
+        email: String,
+        role: String
+    ): String {
         val now = Date()
-        val expiryDate = Date(now.time + jwtExpirationInMs)
+        val expiryDate = Date(now.time + jwtExpirationInMs * 1000)
 
         return Jwts.builder()
-            .setSubject(userId.toString())
+            .setSubject(email)  // Subject should be email
+            .claim("userId", userId)
+            .claim("email", email)  // Explicitly set email claim
+            .claim("role", role)
             .setIssuedAt(now)
             .setExpiration(expiryDate)
-            .claim("userId", userId)
-            .claim("email", email)
-            .claim("role", role)
             .signWith(secretKey, SignatureAlgorithm.HS512)
             .compact()
     }
@@ -64,13 +68,20 @@ class JwtProvider(
     /**
      * Get user ID from JWT token
      */
-    fun getUserIdFromToken(token: String?): Long? {
-        return try {
-            val claims = getAllClaimsFromToken(token)
-            val userId = claims["userId"]
-            userId?.toString()?.toLong() ?: claims.subject.toLong()
-        } catch (e: Exception) {
-            null
+    fun getUserIdFromToken(token: String): Long {
+        val claims = Jwts.parserBuilder()
+            .setSigningKey(secretKey)
+            .build()
+            .parseClaimsJws(token)
+            .body
+
+        // Handle both Integer and Long types
+        val userIdValue = claims.get("userId")
+        return when (userIdValue) {
+            is Long -> userIdValue
+            is Integer -> userIdValue.toLong()
+            is Int -> userIdValue.toLong()
+            else -> userIdValue.toString().toLong()
         }
     }
 
@@ -90,24 +101,26 @@ class JwtProvider(
      * Get email from JWT token
      */
     fun getEmailFromToken(token: String): String? {
-        return try {
-            val claims = getAllClaimsFromToken(token)
-            claims["email"].toString()
-        } catch (e: Exception) {
-            null
-        }
+        val claims = Jwts.parserBuilder()
+            .setSigningKey(secretKey)
+            .build()
+            .parseClaimsJws(token)
+            .body
+
+        return claims.get("email", String::class.java) ?: claims.subject
     }
 
     /**
      * Get role from JWT token
      */
-    fun getRoleFromToken(token: String): String? {
-        return try {
-            val claims = getAllClaimsFromToken(token)
-            claims["role"].toString()
-        } catch (e: Exception) {
-            null
-        }
+    fun getRoleFromToken(token: String): String {
+        val claims = Jwts.parserBuilder()
+            .setSigningKey(secretKey)
+            .build()
+            .parseClaimsJws(token)
+            .body
+
+        return claims.get("role", String::class.java)
     }
 
     /**
