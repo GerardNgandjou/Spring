@@ -20,8 +20,27 @@ spring:
       hibernate:
         format_sql: true
 
+# WebSocket Configuration
+websocket:
+  path: /ws-chat
+  allowed-origins: "*"
+
 server:
   port: 8081
   error:
     include-message: always
     include-binding-errors: always
+
+logging:
+  level:
+    org.springframework.web.socket: DEBUG
+    org.springframework.messaging: DEBUG
+    org.springframework.security: DEBUG
+
+
+# JWT Configuration
+# Secret key should be at least 32 characters for HS512
+jwt:
+  secret: mySecretKeyForJWTTokenGenerationAndValidationPurposesOnly1234567890
+  # Token expiration in milliseconds (86400000 = 24 hours)
+  expiration: 86400000
