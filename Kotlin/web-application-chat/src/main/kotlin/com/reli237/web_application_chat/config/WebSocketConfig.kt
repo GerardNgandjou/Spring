@@ -14,43 +14,25 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableScheduling
 class WebSocketConfig : WebSocketMessageBrokerConfigurer {
 
-    /**
-     * Configure STOMP endpoints for WebSocket connections
-     */
-    override fun registerStompEndpoints(registry: StompEndpointRegistry) {
-        registry.addEndpoint("/ws-chat")
-            .setAllowedOrigins("*")
-            .withSockJS()
-
-        registry.addEndpoint("/ws-chat")
-            .setAllowedOrigins("*")
-    }
-
-    /**
-     * Configure message broker for handling messages
-     */
     override fun configureMessageBroker(config: MessageBrokerRegistry) {
-        // Enable a simple message broker with /topic and /queue destinations
+        // Enable a simple memory-based message broker to send messages to clients
         config.enableSimpleBroker("/topic", "/queue")
-            .setHeartbeatValue(longArrayOf(10000, 10000))
-            .setTaskScheduler(taskScheduler())
 
-        // Set the prefix for messages sent to the server
+        // Set the prefix for messages that are bound for @MessageMapping-annotated methods
         config.setApplicationDestinationPrefixes("/app")
 
-        // Set the prefix for user-specific destinations
+        // Enable user destination broadcasts
         config.setUserDestinationPrefix("/user")
     }
 
-    /**
-     * Create a TaskScheduler bean for WebSocket heartbeat
-     */
-    @Bean
-    fun taskScheduler(): TaskScheduler {
-        val scheduler = ThreadPoolTaskScheduler()
-        scheduler.poolSize = 1
-//        scheduler.threadNamePrefix = "ws-heartbeat-"
-        scheduler.initialize()
-        return scheduler
+    override fun registerStompEndpoints(registry: StompEndpointRegistry) {
+        // Register the "/ws" endpoint for WebSocket connections
+        registry.addEndpoint("/ws")
+            .setAllowedOriginPatterns("*")
+            .withSockJS()  // Enable SockJS fallback options
+
+        // Optional: Register a second endpoint without SockJS for pure WebSocket connections
+        registry.addEndpoint("/ws")
+            .setAllowedOriginPatterns("*")
     }
 }
