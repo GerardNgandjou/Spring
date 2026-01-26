@@ -122,6 +122,9 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.PUT, "/api/messages/**").authenticated()
                     .requestMatchers(HttpMethod.DELETE, "/api/messages/**").authenticated()
 
+                    // WebSockets endpoints
+                    .requestMatchers("/ws/**").permitAll()   // ✅ VERY IMPORTANT
+
                     // All other requests require authentication
                     .anyRequest().authenticated()
             }
@@ -158,6 +161,7 @@ class SecurityConfig(
     fun corsConfigurationSource(): CorsConfigurationSource {
         val corsConfig = CorsConfiguration().apply {
             allowedOrigins = listOf("*")
+            allowedOrigins = listOf("http://localhost:3000", "http://localhost:5173", "http://localhost:8081")
             allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
             allowedHeaders = listOf("*")
             exposedHeaders = listOf("Authorization", "Content-Type")

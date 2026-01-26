@@ -23,6 +23,15 @@ spring:
       hibernate:
         format_sql: true
 
+  # Thymeleaf
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    mode: HTML
+    encoding : UTF-8
+    cache: false
+
+
 # WebSocket Configuration
 websocket:
   path: /ws-chat

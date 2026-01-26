@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Application</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+
+</head>
+<body>
+<div class="container">
+    <!-- Header -->
+    <header class="app-header">
+        <h1 class="app-title">Chat Application</h1>
+        <p class="app-subtitle">Real-time messaging with WebSocket</p>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('auth')">Authentication</div>
+        <div class="tab" onclick="switchTab('chat')">Chat</div>
+        <div class="tab" onclick="switchTab('users')">Users Management</div>
+    </div>
+
+    <!-- Auth Tab -->
+    <div id="auth-tab" class="tab-content active">
+        <div id="auth-section" class="auth-section">
+            <!-- Register Form -->
+            <div class="auth-form">
+                <h3 class="form-title">Register</h3>
+                <div id="register-error" class="error hidden"></div>
+                <div id="register-success" class="success hidden"></div>
+                <form id="register-form" onsubmit="register(event)">
+                    <div class="form-group">
+                        <label for="register-email">Email</label>
+                        <input type="email" id="register-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-password">Password</label>
+                        <input type="password" id="register-password" required minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label for="register-role">Role</label>
+                        <select id="register-role">
+                            <option value="USER">User</option>
+                            <option value="ADMIN">Admin</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Register</button>
+                </form>
+                <div class="form-group mt-2">
+                    <button class="btn btn-secondary w-100" onclick="checkEmail()">Check Email Availability</button>
+                </div>
+            </div>
+
+            <!-- Login Form -->
+            <div class="auth-form">
+                <h3 class="form-title">Login</h3>
+                <div id="login-error" class="error hidden"></div>
+                <form id="login-form" onsubmit="login(event)">
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Login</button>
+                </form>
+                <div class="form-group mt-2">
+                    <button class="btn btn-secondary w-100" onclick="validateToken()">Validate Token</button>
+                </div>
+                <div class="form-group">
+                    <button class="btn btn-secondary w-100" onclick="refreshToken()">Refresh Token</button>
+                </div>
+                <div class="form-group">
+                    <button class="btn btn-danger w-100" onclick="logout()">Logout</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Info -->
+        <div id="user-info" class="user-info hidden">
+            <div class="user-details">
+                <div class="user-avatar" id="user-avatar">U</div>
+                <div>
+                    <h3 id="user-email"></h3>
+                    <p id="user-role"></p>
+                    <p id="user-session"></p>
+                </div>
+            </div>
+            <div>
+                <p>Token expires in: <span id="token-expires"></span></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Tab -->
+    <div id="chat-tab" class="tab-content">
+        <div class="chat-layout">
+            <!-- Rooms Panel -->
+            <div class="rooms-panel">
+                <h3 class="form-title">Chat Rooms</h3>
+                <div class="flex">
+                    <input type="text" id="room-search" placeholder="Search rooms..." oninput="searchRooms()">
+                    <button class="btn btn-primary btn-small" onclick="createRoom()">New</button>
+                </div>
+
+                <!-- Room Creation Form -->
+                <div id="room-form" class="hidden mt-2">
+                    <div class="form-group">
+                        <input type="text" id="room-name" placeholder="Room name">
+                    </div>
+                    <div class="form-group">
+                        <select id="room-type">
+                            <option value="PUBLIC">Public</option>
+                            <option value="PRIVATE">Private</option>
+                            <option value="GROUP">Group</option>
+                        </select>
+                    </div>
+                    <div class="flex">
+                        <button class="btn btn-primary btn-small" onclick="saveRoom()">Create</button>
+                        <button class="btn btn-secondary btn-small" onclick="cancelRoom()">Cancel</button>
+                    </div>
+                </div>
+
+                <!-- Rooms List -->
+                <div id="rooms-list" class="rooms-list">
+                    <div class="loading">Loading rooms...</div>
+                </div>
+            </div>
+
+            <!-- Chat Panel -->
+            <div class="chat-panel">
+                <div id="chat-header" class="form-title" style="padding: 20px; margin: 0;">
+                    Select a chat room
+                </div>
+
+                <!-- Messages Container -->
+                <div id="messages-container" class="messages-container">
+                    <div class="loading">Select a room to start chatting</div>
+                </div>
+
+                <!-- Message Input -->
+                <div id="message-input" class="message-input hidden">
+                    <form id="message-form" class="message-form" onsubmit="sendMessage(event)">
+                        <input type="text" id="message-text" placeholder="Type your message..." required>
+                        <button type="submit" class="btn btn-primary">Send</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Users Management Tab -->
+    <div id="users-tab" class="tab-content">
+        <div class="auth-form">
+            <h3 class="form-title">Users Management</h3>
+            <div id="users-error" class="error hidden"></div>
+
+            <div class="form-group">
+                <button class="btn btn-primary w-100" onclick="getAllUsers()">Load All Users</button>
+            </div>
+
+            <div class="form-group">
+                <input type="text" id="user-search" placeholder="Search by role..." oninput="searchUsers()">
+            </div>
+
+            <!-- Users List -->
+            <div id="users-list" class="rooms-list mt-2">
+                <div class="loading">Click "Load All Users" to display users</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script th:src="@{/js/script.js}"></script>
+<script src="/js/script.js"></script>   <!-- may break -->
+
+</body>
+</html>

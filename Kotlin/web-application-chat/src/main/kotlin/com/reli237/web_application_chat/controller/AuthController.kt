@@ -284,7 +284,6 @@ class AuthController(
         }
     }
 
-
     /**
      * Logout user (client-side token invalidation)
      * POST /api/auth/logout
@@ -351,7 +350,6 @@ class AuthController(
             )
         }
     }
-
 
     /**
      * Refresh authentication token
@@ -441,8 +439,6 @@ class AuthController(
         }
     }
 
-
-
     /**
      * Extract JWT token from Authorization header
      *
@@ -468,8 +464,6 @@ class AuthController(
         val token = extractTokenFromRequest(request)
         return token?.let { jwtProvider.getUserIdFromToken(it) }
     }
-
-
 
 }
 
