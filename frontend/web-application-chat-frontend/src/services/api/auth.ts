@@ -1,24 +1,24 @@
 import api from './api';
+import type { ApiResponse } from '../../types/auth.types';
 
 export const authApi = {
-  // Login
   login: (email: string, password: string) => 
-    api.post('/api/auth/login', { email, password }),
+    api.post('/auth/login', { email, password }),
   
-  // Register
   register: (email: string, password: string, role?: string) => 
-    api.post('/api/auth/register', { email, password, role }),
+    api.post('/auth/register', { email, password, role }),
   
-  // Check email
+  logout: () => api.post('/auth/logout'),
+  
+  getCurrentUser: () => api.get('/auth/me'),
+  
+  refreshToken: () => api.post('/auth/refresh-token'),
+  
   checkEmail: (email: string) => 
-    api.get(`/api/auth/check-email?email=${encodeURIComponent(email)}`),
-  
-  // Get current user (vérifie le token)
-  getCurrentUser: () => api.get('/api/auth/me'),
-  
-  // Logout
-  logout: () => api.post('/api/auth/logout'),
-  
-  // Refresh token
-  refreshToken: () => api.post('/api/auth/refresh-token'),
+    api.get(`/auth/check-email?email=${encodeURIComponent(email)}`),
+
+  validateToken: (token: string): Promise<ApiResponse<any>> => 
+    api.post('/auth/validate-token', null, { params: { token } }),
 };
+
+

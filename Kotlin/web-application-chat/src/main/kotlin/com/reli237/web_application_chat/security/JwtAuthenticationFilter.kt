@@ -74,10 +74,7 @@ class JwtAuthenticationFilter (
 
         filterChain.doFilter(request, response)
     }
-
-
-
-
+    
     /**
      * Extract JWT token from Authorization header
      * Expected format: "Bearer {token}"

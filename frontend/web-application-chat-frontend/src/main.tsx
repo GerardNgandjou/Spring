@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-// import AppDebug from './AppDebug'; // Utilise le debug
+import AppDebug from './AppDebug'; // Utilise le debug
 
 
 console.log('🚀 Démarrage de React...');

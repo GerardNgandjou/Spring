@@ -1,4 +1,4 @@
-// contexts/AuthContext.tsx - VERSION COMPLÈTE CORRIGÉE
+// contexts/AuthContext.tsx - VERSION COMPLÈTE ET FONCTIONNELLE
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { authApi } from '../services/api/auth';
 import api from '../services/api/api';
@@ -14,10 +14,10 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (token: string, userData: User) => void;
-  logout: () => void;
+  login: (token: string, userData: User) => Promise<void>;
+  logout: () => Promise<void>;
   isAdmin: boolean;
-  checkAuth: () => Promise<boolean>;
+  updateUser: (userData: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,100 +38,92 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fonction pour vérifier l'authentification
-  const checkAuth = async (): Promise<boolean> => {
-    const token = localStorage.getItem('token');
-    
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return false;
-    }
-
-    try {
-      // Vérifier si le token est valide auprès du backend
-      const response = await authApi.getCurrentUser();
-      
-      if (response.data.success && response.data.data) {
-        const userData = response.data.data;
-        setUser(userData);
-        
-        // Mettre à jour le localStorage avec les données fraîches
-        localStorage.setItem('user', JSON.stringify(userData));
-        
-        // Configurer l'interceptor avec le token actuel
-        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        
-        return true;
-      } else {
-        // Token invalide, nettoyer
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        setUser(null);
-        return false;
-      }
-    } catch (error: any) {
-      console.error('Auth check failed:', error);
-      
-      // Si erreur 401 (Unauthorized), nettoyer
-      if (error.response?.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        delete api.defaults.headers.common['Authorization'];
-      }
-      
-      setUser(null);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Vérifier l'authentification au chargement
+  // Initialiser l'authentification
   useEffect(() => {
-    const initAuth = async () => {
+    const initializeAuth = async () => {
       const token = localStorage.getItem('token');
+      const userData = localStorage.getItem('user');
       
-      if (token) {
-        // Vérifier l'authentification
-        await checkAuth();
-      } else {
-        setLoading(false);
+      if (token && userData) {
+        try {
+          // Vérifier si le token est valide
+          const response = await authApi.getCurrentUser();
+          
+          if (response.data.success) {
+            // Token valide, mettre à jour l'utilisateur
+            const freshUserData = response.data.data;
+            setUser(freshUserData);
+            
+            // Mettre à jour le localStorage avec les données fraîches
+            localStorage.setItem('user', JSON.stringify(freshUserData));
+            
+            console.log('User authenticated from localStorage:', freshUserData.email);
+          } else {
+            // Token invalide, nettoyer
+            console.log('Invalid token, clearing storage');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+          }
+        } catch (error) {
+          console.error('Auth initialization error:', error);
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
       }
+      
+      setLoading(false);
     };
 
-    initAuth();
+    initializeAuth();
   }, []);
 
-  const login = (token: string, userData: User) => {
-    // Stocker dans localStorage
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
-    
-    // Mettre à jour l'état
-    setUser(userData);
-    
-    // Configurer l'interceptor axios
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    
-    console.log('Login successful, token stored:', token.substring(0, 20) + '...');
+  // Fonction de connexion
+  const login = async (token: string, userData: User): Promise<void> => {
+    return new Promise((resolve) => {
+      // Stocker dans localStorage
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      
+      // Configurer l'interceptor axios
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      // Mettre à jour l'état
+      setUser(userData);
+      
+      console.log('Login successful:', userData.email);
+      resolve();
+    });
   };
 
-  const logout = () => {
-    // Appeler l'API logout
-    authApi.logout().catch(console.error);
-    
-    // Nettoyer localStorage
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    
-    // Nettoyer les headers axios
-    delete api.defaults.headers.common['Authorization'];
-    
-    // Mettre à jour l'état
-    setUser(null);
-    
-    console.log('Logout successful');
+  // Fonction de déconnexion
+  const logout = async (): Promise<void> => {
+    return new Promise((resolve) => {
+      try {
+        // Appeler l'API logout
+        authApi.logout();
+      } catch (error) {
+        console.error('Logout API error:', error);
+      }
+      
+      // Nettoyer localStorage
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      
+      // Nettoyer les headers axios
+      delete api.defaults.headers.common['Authorization'];
+      
+      // Mettre à jour l'état
+      setUser(null);
+      
+      console.log('Logout successful');
+      resolve();
+    });
+  };
+
+  // Mettre à jour l'utilisateur
+  const updateUser = (userData: User) => {
+    setUser(userData);
+    localStorage.setItem('user', JSON.stringify(userData));
   };
 
   const isAdmin = user?.role === 'ADMIN';
@@ -142,7 +134,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     logout,
     isAdmin,
-    checkAuth,
+    updateUser,
   };
 
   return (
