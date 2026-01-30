@@ -1,4 +1,4 @@
-// src/pages/ChatPage.tsx - VERSION FINALE FONCTIONNELLE
+// src/pages/ChatPage.tsx - VERSION AMÉLIORÉE AVEC AFFICHAGE CHRONOLOGIQUE
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,6 +36,7 @@ import {
   ListItemIcon,
   useTheme,
   useMediaQuery,
+  Divider,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -50,6 +51,9 @@ import {
   Refresh as RefreshIcon,
   ContentCopy as ContentCopyIcon,
   Reply as ReplyIcon,
+  MoreVert as MoreVertIcon,
+  Check as CheckIcon,
+  DoneAll as DoneAllIcon,
 } from '@mui/icons-material';
 import LockIcon from '@mui/icons-material/Lock';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -58,17 +62,16 @@ import { type MessageResponse } from '../types';
 
 export type MessageStatusType = 'sending' | 'sent' | 'delivered' | 'read' | 'error';
 
+// ==================== FORMATAGE DES DATES ====================
 const formatDateTime = (dateString: string): string => {
   try {
     const date = new Date(dateString);
     
-    // Vérifier si la date est valide
     if (isNaN(date.getTime())) {
       console.error('❌ Invalid date string:', dateString);
       return 'Date invalide';
     }
     
-    // Formater en français
     return date.toLocaleDateString('fr-FR', {
       weekday: 'long',
       year: 'numeric',
@@ -112,21 +115,75 @@ const formatDate = (dateString: string): string => {
       return 'Date invalide';
     }
 
+    // Aujourd'hui
     if (date.toDateString() === today.toDateString()) {
-      return 'Aujourd\'hui';
-    } else if (date.toDateString() === yesterday.toDateString()) {
+      return "Aujourd'hui";
+    } 
+    // Hier
+    else if (date.toDateString() === yesterday.toDateString()) {
       return 'Hier';
     }
+    // Cette semaine
+    const weekAgo = new Date(today);
+    weekAgo.setDate(today.getDate() - 7);
+    if (date > weekAgo) {
+      return date.toLocaleDateString('fr-FR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      });
+    }
     
+    // Plus ancien
     return date.toLocaleDateString('fr-FR', {
-      weekday: 'long',
       day: 'numeric',
-      month: 'long'
+      month: 'long',
+      year: 'numeric'
     });
   } catch (error) {
     console.error('Error formatting date for grouping:', error);
     return 'Date invalide';
   }
+};
+
+// Fonction pour regrouper les messages par date
+const groupMessagesByDate = (messages: Message[]): { date: string; messages: Message[] }[] => {
+  const groups: { [key: string]: Message[] } = {};
+  
+  messages.forEach(message => {
+    const dateKey = new Date(message.createdAt).toDateString();
+    if (!groups[dateKey]) {
+      groups[dateKey] = [];
+    }
+    groups[dateKey].push(message);
+  });
+
+  return Object.entries(groups)
+    .map(([date, msgs]) => ({
+      date: formatDate(msgs[0].createdAt),
+      messages: msgs.sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )
+    }))
+    .sort((a, b) => 
+      new Date(a.messages[0].createdAt).getTime() - new Date(b.messages[0].createdAt).getTime()
+    );
+};
+
+// Fonction pour obtenir les initiales d'un utilisateur
+const getInitials = (email?: string): string => {
+  if (!email) return '?';
+  const name = email.split('@')[0];
+  return name.slice(0, 2).toUpperCase();
+};
+
+// Fonction pour obtenir une couleur d'avatar basée sur l'ID
+const getAvatarColor = (userId: number): string => {
+  const colors = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
+    '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#52B788'
+  ];
+  return colors[userId % colors.length];
 };
 
 const ChatPage: React.FC = () => {
@@ -179,7 +236,7 @@ const ChatPage: React.FC = () => {
     return {
       id: dto.id,
       content: dto.content,
-      senderId: dto.sender.id, // IMPORTANT: doit correspondre à user?.id
+      senderId: dto.sender.id,
       sender: dto.sender,
       chatRoomId: dto.chatRoomId,
       createdAt: dto.timestamp,
@@ -187,7 +244,6 @@ const ChatPage: React.FC = () => {
       isDeleted: dto.isDeleted,
     };
   };
-
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -209,14 +265,12 @@ const ChatPage: React.FC = () => {
       console.log('✅ Rooms loaded:', roomsData.length, roomsData);
       setRooms(roomsData);
 
-      // Initialiser les compteurs
       const newUnreadCounts: Record<number, number> = {};
       roomsData.forEach(room => {
         newUnreadCounts[room.id] = 0;
       });
       setUnreadCounts(newUnreadCounts);
 
-      // Sélectionner une salle par défaut
       if (roomId) {
         const roomIdNum = parseInt(roomId);
         const room = roomsData.find(r => r.id === roomIdNum);
@@ -243,47 +297,81 @@ const ChatPage: React.FC = () => {
       return;
     }
 
-    console.log('🔌 Initializing WebSocket...');
-    let isMounted = true;
-
-    const handleConnect = () => {
-      if (!isMounted) return;
-      console.log('✅ WebSocket connected');
-      setIsWsConnected(true);
-      setConnectionError(null);
-      setConnectionRetryCount(0);
-      toast.success('Connecté au chat en temps réel', { icon: '✅', duration: 2000 });
+    console.log('🔌 Initializing WebSocket connection...');
+    
+    const handleConnectionChange = (connected: boolean) => {
+      console.log('📡 WebSocket connection status:', connected);
+      setIsWsConnected(connected);
+      if (connected) {
+        setConnectionError(null);
+        setShowConnectionAlert(false);
+        setConnectionRetryCount(0);
+        toast.success('Connexion établie');
+      } else {
+        setConnectionError('Connexion perdue');
+        setShowConnectionAlert(true);
+        setConnectionRetryCount(prev => prev + 1);
+      }
     };
 
-    const handleDisconnect = () => {
-      if (!isMounted) return;
-      console.log('❌ WebSocket disconnected');
-      setIsWsConnected(false);
-      setShowConnectionAlert(true);
-      toast.error('Déconnecté du chat en temps réel', { icon: '❌', duration: 3000 });
+    const handleNewMessage = (messageDto: MessageResponse) => {
+      console.log('📨 New message received:', messageDto);
+      const message = mapMessageResponseToMessage(messageDto);
+      
+      setMessages(prev => {
+        const exists = prev.some(m => m.id === message.id);
+        if (exists) {
+          console.log('⚠️ Message already exists, skipping');
+          return prev;
+        }
+        console.log('✅ Adding new message to state');
+        return [...prev, message];
+      });
+
+      if (message.chatRoomId !== currentRoom?.id) {
+        setUnreadCounts(prev => ({
+          ...prev,
+          [message.chatRoomId]: (prev[message.chatRoomId] || 0) + 1
+        }));
+      }
+
+      setTimeout(() => scrollToBottom(), 100);
+    };
+
+    const handleTypingStatus = (data: { userId: number; isTyping: boolean; roomId: number }) => {
+      console.log('⌨️ Typing status:', data);
+      if (data.roomId === currentRoom?.id && data.userId !== user.id) {
+        setTypingUsers(prev => {
+          const newSet = new Set(prev);
+          if (data.isTyping) {
+            newSet.add(data.userId);
+          } else {
+            newSet.delete(data.userId);
+          }
+          return newSet;
+        });
+      }
     };
 
     const handleError = (error: string) => {
-      if (!isMounted) return;
       console.error('❌ WebSocket error:', error);
       setConnectionError(error);
-      toast.error(`Erreur: ${error}`);
+      setShowConnectionAlert(true);
     };
 
-    // S'abonner aux événements
-    const unsubConnect = chatWebSocket.onConnect(handleConnect);
-    const unsubDisconnect = chatWebSocket.onDisconnect(handleDisconnect);
-    const unsubError = chatWebSocket.onError(handleError);
+    chatWebSocket.on('connectionChange', handleConnectionChange);
+    chatWebSocket.on('message', handleNewMessage);
+    chatWebSocket.on('typing', handleTypingStatus);
+    chatWebSocket.on('error', handleError);
 
-    // Connecter
     chatWebSocket.connect(token, user.id);
 
     return () => {
-      console.log('🧹 Cleaning up WebSocket');
-      isMounted = false;
-      unsubConnect();
-      unsubDisconnect();
-      unsubError();
+      console.log('🔌 Cleaning up WebSocket...');
+      chatWebSocket.off('connectionChange', handleConnectionChange);
+      chatWebSocket.off('message', handleNewMessage);
+      chatWebSocket.off('typing', handleTypingStatus);
+      chatWebSocket.off('error', handleError);
       chatWebSocket.disconnect();
     };
   }, [token, user?.id]);
@@ -291,151 +379,103 @@ const ChatPage: React.FC = () => {
   // ==================== SELECT ROOM ====================
   const selectRoom = async (room: ChatRoom) => {
     try {
-      setIsLoading(true);
-      console.log(`🚪 Selecting room ${room.id}...`);
-
+      console.log('🎯 Selecting room:', room.id, room.name);
       setCurrentRoom(room);
+      setMessages([]);
+      setIsLoading(true);
       navigate(`/chat/${room.id}`);
 
-      // Charger messages et participants
-      console.log(`📥 Loading messages for room ${room.id}...`);
-      const [messagesRes, participantsRes] = await Promise.all([
-        chatApi.getMessagesByRoomOrdered(room.id),
-        chatApi.getParticipantsByRoom(room.id)
-      ]);
-
-      const messagesData = messagesRes.data || [];
-      const participantsData = participantsRes.data || [];
-      
-      console.log('✅ Messages loaded:', messagesData.length);
-      console.log('✅ Participants loaded:', participantsData.length);
-
-      setMessages(messagesData);
-      setParticipants(participantsData);
-
-      // Rejoindre via WebSocket
-      if (isWsConnected) {
-        console.log('📡 Joining room via WebSocket...');
-        chatWebSocket.joinRoom(room.id);
-      }
-
-      // Reset unread count
       setUnreadCounts(prev => ({
         ...prev,
         [room.id]: 0
       }));
 
-      // Scroll to bottom
-      setTimeout(() => scrollToBottom(), 100);
+      const [messagesResponse, participantsResponse] = await Promise.all([
+        chatApi.getMessages(room.id),
+        chatApi.getParticipants(room.id)
+      ]);
 
-      toast.success(`Connecté à ${room.name}`);
+      const messagesData = messagesResponse.data || [];
+      console.log('✅ Messages loaded:', messagesData.length);
+      setMessages(messagesData);
+      
+      const participantsData = participantsResponse.data || [];
+      console.log('✅ Participants loaded:', participantsData.length);
+      setParticipants(participantsData);
+
+      if (currentRoom?.id !== room.id) {
+        chatWebSocket.leaveRoom(currentRoom!.id);
+      }
+      chatWebSocket.joinRoom(room.id);
+
+      setTimeout(() => scrollToBottom(), 100);
     } catch (error) {
       console.error('❌ Error selecting room:', error);
       toast.error('Erreur lors du chargement du salon');
     } finally {
       setIsLoading(false);
-      if (isMobile) setShowRoomsDrawer(false);
     }
   };
-
-  // ==================== JOIN ROOM WHEN CONNECTED ====================
-  useEffect(() => {
-    if (isWsConnected && currentRoom) {
-      console.log(`📡 Joining room ${currentRoom.id} via WebSocket...`);
-      chatWebSocket.joinRoom(currentRoom.id);
-
-      // S'abonner aux nouveaux messages
-    const unsubscribe = chatWebSocket.onRoomMessage(
-      currentRoom.id,
-      (messageResponse) => {
-        console.log('📨 New message received:', messageResponse);
-
-        const message = mapMessageResponseToMessage(messageResponse);
-
-        setMessages(prev => {
-          if (!prev.some(m => m.id === message.id)) {
-            return [...prev, message];
-          }
-          return prev;
-        });
-
-        scrollToBottom();
-      }
-    );
-    
-      return () => {
-        console.log(`👋 Leaving room ${currentRoom.id}`);
-        chatWebSocket.leaveRoom(currentRoom.id);
-        unsubscribe();
-      };
-    }
-  }, [isWsConnected, currentRoom?.id]);
 
   // ==================== SEND MESSAGE ====================
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !currentRoom || !isWsConnected) {
-      if (!isWsConnected) {
-        toast.error('Pas connecté au chat');
-      }
-      return;
-    }
+    if (!newMessage.trim() || !currentRoom || !user) return;
 
     const messageContent = newMessage.trim();
+    setNewMessage('');
+
     const tempId = Date.now();
+    const tempMessage: Message = {
+      id: tempId,
+      content: messageContent,
+      senderId: user.id,
+      sender: { id: user.id, email: user.email },
+      chatRoomId: currentRoom.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isDeleted: false,
+    };
+
+    setMessages(prev => [...prev, tempMessage]);
+    setMessageStatus(prev => ({ ...prev, [tempId]: 'sending' }));
+    scrollToBottom();
 
     try {
-      // Clear input immediately
-      setNewMessage('');
+      console.log('📤 Sending message via WebSocket:', messageContent);
+      chatWebSocket.sendMessage(currentRoom.id, messageContent);
       
-      // Add optimistic message
-      const tempMessage: Message = {
-        id: tempId,
-        content: messageContent,
-        senderId: user?.id || 0,
-        chatRoomId: currentRoom.id,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        isDeleted: false,
-        sender: {
-          id: user?.id || 0,
-          email: user?.email || '',
-        },
-      };
+      setMessageStatus(prev => ({ ...prev, [tempId]: 'sent' }));
+      
+      setTimeout(() => {
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+        setMessageStatus(prev => {
+          const newStatus = { ...prev };
+          delete newStatus[tempId];
+          return newStatus;
+        });
+      }, 1000);
 
-      setMessages(prev => [...prev, tempMessage]);
-      setMessageStatus(prev => ({ ...prev, [tempId]: 'sending' }));
-      scrollToBottom();
-
-      console.log(`✉️ Sending message to room ${currentRoom.id}...`);
-      const success = await chatWebSocket.sendMessage(currentRoom.id, messageContent);
-
-      if (success) {
-        console.log('✅ Message sent successfully');
-        setMessageStatus(prev => ({ ...prev, [tempId]: 'sent' }));
-      } else {
-        console.error('❌ Failed to send message');
-        setMessageStatus(prev => ({ ...prev, [tempId]: 'error' }));
-        toast.error('Erreur lors de l\'envoi du message');
-      }
-
-      handleStopTyping();
     } catch (error) {
       console.error('❌ Error sending message:', error);
       setMessageStatus(prev => ({ ...prev, [tempId]: 'error' }));
-      toast.error('Erreur lors de l\'envoi');
+      toast.error('Erreur lors de l\'envoi du message');
     }
   };
 
-  // ==================== TYPING NOTIFICATIONS ====================
+  // ==================== TYPING INDICATOR ====================
+  const handleTyping = () => {
+    if (!currentRoom) return;
 
-  const handleStopTyping = useCallback(() => {
-    if (currentRoom && isWsConnected) {
-      chatWebSocket.sendTypingNotification(currentRoom.id, false);
-    }
+    chatWebSocket.sendTypingStatus(currentRoom.id, true);
+
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-  }, [currentRoom, isWsConnected]);
+
+    typingTimeoutRef.current = setTimeout(() => {
+      chatWebSocket.sendTypingStatus(currentRoom.id, false);
+    }, 1000);
+  };
 
   // ==================== CREATE ROOM ====================
   const handleCreateRoom = async () => {
@@ -445,77 +485,43 @@ const ChatPage: React.FC = () => {
     }
 
     try {
-      console.log('🆕 Creating room:', newRoomName);
       const response = await chatApi.createChatRoom({
         name: newRoomName.trim(),
         description: newRoomDescription.trim() || undefined,
-        type: isPrivateRoom ? 'PRIVATE' : 'PUBLIC',
+        isPrivate: isPrivateRoom,
       });
 
-      const newRoom = response.data;
-      setRooms(prev => [...prev, newRoom]);
-      await selectRoom(newRoom);
+      console.log('✅ Room created:', response.data);
+      toast.success('Salon créé avec succès');
 
       setShowNewRoomDialog(false);
       setNewRoomName('');
       setNewRoomDescription('');
       setIsPrivateRoom(false);
 
-      toast.success('Salon créé avec succès');
+      await loadRooms();
+      
+      if (response.data) {
+        await selectRoom(response.data);
+      }
     } catch (error) {
       console.error('❌ Error creating room:', error);
       toast.error('Erreur lors de la création du salon');
     }
   };
 
-  // ==================== FORMATTING ====================
+  // ==================== UTILITY FUNCTIONS ====================
   const scrollToBottom = () => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) {
-      return 'Aujourd\'hui';
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return 'Hier';
-    }
-    return date.toLocaleDateString();
-  };
-
-  const groupMessagesByDate = () => {
-    const groups: { [key: string]: Message[] } = {};
-    messages.forEach(message => {
-      const date = formatDate(message.createdAt);
-      if (!groups[date]) groups[date] = [];
-      groups[date].push(message);
-    });
-    return groups;
-  };
-
-  const getUserDisplayName = (message: Message) => {
-    if (message.senderId === user?.id) return 'Vous';
-    return message.sender?.email?.split('@')[0] || `Utilisateur ${message.senderId}`;
-  };
-
-
-  const handleContextMenu = (event: React.MouseEvent<HTMLDivElement>, message?: Message) => {
+  const handleContextMenu = (event: React.MouseEvent, message: Message) => {
     event.preventDefault();
-    setContextMenu(
-      contextMenu === null
-        ? { mouseX: event.clientX + 2, mouseY: event.clientY - 6, message }
-        : null,
-    );
+    setContextMenu({
+      mouseX: event.clientX,
+      mouseY: event.clientY,
+      message,
+    });
   };
 
   const handleContextMenuClose = () => {
@@ -535,29 +541,165 @@ const ChatPage: React.FC = () => {
         toast.success('Message copié');
         break;
     }
-
     handleContextMenuClose();
   };
 
-  const handleReconnect = () => {
-    if (token && user?.id) {
-      setConnectionRetryCount(0);
-      chatWebSocket.connect(token, user.id);
-      setShowConnectionAlert(false);
-    }
+  const filteredRooms = rooms.filter(room =>
+    room.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // ==================== RENDER MESSAGE BUBBLE ====================
+  const renderMessageBubble = (message: Message, isOwnMessage: boolean) => {
+    const senderInfo = participants.find(p => p.userId === message.senderId);
+    const senderEmail = message.sender?.email || senderInfo?.user?.email || 'Inconnu';
+    const status = messageStatus[message.id];
+
+    return (
+      <Box
+        key={message.id}
+        sx={{
+          display: 'flex',
+          flexDirection: isOwnMessage ? 'row-reverse' : 'row',
+          alignItems: 'flex-end',
+          mb: 1.5,
+          gap: 1,
+          px: 2,
+        }}
+        onContextMenu={(e) => handleContextMenu(e, message)}
+      >
+        {/* Avatar */}
+        {!isOwnMessage && (
+          <Avatar
+            sx={{
+              width: 36,
+              height: 36,
+              bgcolor: getAvatarColor(message.senderId),
+              fontSize: '0.875rem',
+              flexShrink: 0,
+            }}
+          >
+            {getInitials(senderEmail)}
+          </Avatar>
+        )}
+
+        {/* Message Bubble */}
+        <Box
+          sx={{
+            maxWidth: { xs: '75%', sm: '60%', md: '50%' },
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: isOwnMessage ? 'flex-end' : 'flex-start',
+          }}
+        >
+          {/* Sender Name (only for received messages) */}
+          {!isOwnMessage && (
+            <Typography
+              variant="caption"
+              sx={{
+                color: getAvatarColor(message.senderId),
+                fontWeight: 600,
+                mb: 0.5,
+                ml: 1,
+              }}
+            >
+              {senderEmail.split('@')[0]}
+            </Typography>
+          )}
+
+          {/* Message Content */}
+          <Paper
+            elevation={1}
+            sx={{
+              py: 1,
+              px: 1.5,
+              borderRadius: 2,
+              bgcolor: isOwnMessage ? 'primary.main' : 'background.paper',
+              color: isOwnMessage ? 'primary.contrastText' : 'text.primary',
+              borderBottomRightRadius: isOwnMessage ? 4 : 16,
+              borderBottomLeftRadius: isOwnMessage ? 16 : 4,
+              wordWrap: 'break-word',
+              position: 'relative',
+            }}
+          >
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+              {message.content}
+            </Typography>
+
+            {/* Time & Status */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                mt: 0.5,
+                justifyContent: 'flex-end',
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={{
+                  fontSize: '0.7rem',
+                  opacity: 0.8,
+                  color: isOwnMessage ? 'inherit' : 'text.secondary',
+                }}
+              >
+                {formatTime(message.createdAt)}
+              </Typography>
+              
+              {/* Status Icons for own messages */}
+              {isOwnMessage && (
+                <>
+                  {status === 'sending' && (
+                    <CircularProgress size={10} sx={{ color: 'inherit', opacity: 0.8 }} />
+                  )}
+                  {status === 'sent' && (
+                    <CheckIcon sx={{ fontSize: 14, opacity: 0.8 }} />
+                  )}
+                  {status === 'delivered' && (
+                    <DoneAllIcon sx={{ fontSize: 14, opacity: 0.8 }} />
+                  )}
+                  {status === 'read' && (
+                    <DoneAllIcon sx={{ fontSize: 14, color: '#4fc3f7' }} />
+                  )}
+                  {status === 'error' && (
+                    <Typography variant="caption" sx={{ color: 'error.light' }}>!</Typography>
+                  )}
+                </>
+              )}
+            </Box>
+          </Paper>
+        </Box>
+
+        {/* Own message avatar placeholder for alignment */}
+        {isOwnMessage && (
+          <Avatar
+            sx={{
+              width: 36,
+              height: 36,
+              bgcolor: getAvatarColor(user?.id || 0),
+              fontSize: '0.875rem',
+              flexShrink: 0,
+            }}
+          >
+            {getInitials(user?.email)}
+          </Avatar>
+        )}
+      </Box>
+    );
   };
 
-  if (!user || !token) {
+  // ==================== RENDER ====================
+  if (!user) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="error">Vous devez être connecté</Alert>
+      <Box display="flex" alignItems="center" justifyContent="center" height="100vh">
+        <Typography>Veuillez vous connecter</Typography>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
-      {/* SNACKBAR CONNEXION */}
+    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      {/* CONNECTION ALERT */}
       <Snackbar
         open={showConnectionAlert}
         autoHideDuration={6000}
@@ -565,60 +707,16 @@ const ChatPage: React.FC = () => {
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
         <Alert
-          severity="warning"
-          variant="filled"
           onClose={() => setShowConnectionAlert(false)}
-          action={
-            <Button color="inherit" size="small" onClick={handleReconnect}>
-              <RefreshIcon sx={{ mr: 0.5 }} />
-              Reconnecter
-            </Button>
-          }
+          severity={isWsConnected ? 'success' : 'error'}
+          sx={{ width: '100%' }}
         >
-          <Box display="flex" alignItems="center">
-            <WifiOffIcon sx={{ mr: 1 }} />
-            {connectionError || 'Déconnecté'}
-          </Box>
+          {isWsConnected ? 'Connexion rétablie' : connectionError || 'Connexion perdue'}
         </Alert>
       </Snackbar>
 
-      {/* HEADER MOBILE */}
-      <Paper
-        square
-        sx={{
-          display: { xs: 'flex', md: 'none' },
-          alignItems: 'center',
-          p: 2,
-          borderBottom: 1,
-          borderColor: 'divider',
-          position: 'sticky',
-          top: 0,
-          zIndex: 1100,
-        }}
-      >
-        <IconButton onClick={() => setShowRoomsDrawer(true)} sx={{ mr: 2 }}>
-          <MenuIcon />
-        </IconButton>
-        {currentRoom ? (
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="h6" noWrap>{currentRoom.name}</Typography>
-            <Typography variant="body2" color="text.secondary" noWrap>
-              {participants.length} participants
-            </Typography>
-          </Box>
-        ) : (
-          <Typography variant="h6" sx={{ flex: 1 }}>Chat</Typography>
-        )}
-        <IconButton onClick={() => setShowParticipantsDrawer(true)}>
-          <Badge badgeContent={participants.length} color="primary">
-            <PersonIcon />
-          </Badge>
-        </IconButton>
-      </Paper>
-
-      {/* MAIN CONTENT */}
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* SIDEBAR ROOMS DESKTOP */}
+      <Box sx={{ display: 'flex', width: '100%', height: '100%' }}>
+        {/* ROOMS SIDEBAR DESKTOP */}
         <Paper
           square
           sx={{
@@ -630,419 +728,313 @@ const ChatPage: React.FC = () => {
             flexShrink: 0,
           }}
         >
+          {/* Header */}
           <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-              <Typography variant="h6">Salons</Typography>
-              <Chip
-                icon={isWsConnected ? <WifiIcon /> : <WifiOffIcon />}
-                label={isWsConnected ? 'Connecté' : 'Déconnecté'}
-                color={isWsConnected ? 'success' : 'error'}
-                size="small"
-              />
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Typography variant="h5" fontWeight="bold">Messages</Typography>
+              <Box display="flex" gap={1}>
+                <Tooltip title={isWsConnected ? 'Connecté' : 'Déconnecté'}>
+                  <IconButton size="small" color={isWsConnected ? 'success' : 'error'}>
+                    {isWsConnected ? <WifiIcon /> : <WifiOffIcon />}
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Nouveau salon">
+                  <IconButton size="small" onClick={() => setShowNewRoomDialog(true)}>
+                    <AddIcon />
+                  </IconButton>
+                </Tooltip>
+              </Box>
             </Box>
-
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setShowNewRoomDialog(true)}
-              sx={{ mb: 2 }}
-            >
-              Nouveau salon
-            </Button>
 
             <TextField
               fullWidth
-              placeholder="Rechercher..."
+              size="small"
+              placeholder="Rechercher un salon..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <SearchIcon />
+                    <SearchIcon fontSize="small" />
                   </InputAdornment>
                 ),
               }}
             />
           </Box>
 
-          {/* ROOMS LIST */}
+          {/* Rooms List */}
           <Box sx={{ flex: 1, overflow: 'auto' }}>
             {isLoadingRooms ? (
-              <Box display="flex" justifyContent="center" p={3}>
-                <CircularProgress size={24} />
-              </Box>
-            ) : rooms.length === 0 ? (
               <Box display="flex" alignItems="center" justifyContent="center" p={3}>
-                <Typography color="text.secondary">Aucun salon</Typography>
+                <CircularProgress />
+              </Box>
+            ) : filteredRooms.length === 0 ? (
+              <Box display="flex" alignItems="center" justifyContent="center" p={3}>
+                <Typography color="text.secondary" variant="body2">
+                  {searchQuery ? 'Aucun salon trouvé' : 'Aucun salon disponible'}
+                </Typography>
               </Box>
             ) : (
-              <List disablePadding>
-                {rooms
-                  .filter(room =>
-                    room.name.toLowerCase().includes(searchQuery.toLowerCase())
-                  )
-                  .map(room => (
-                    <ListItemButton
-                      key={room.id}
-                      selected={currentRoom?.id === room.id}
-                      onClick={() => selectRoom(room)}
-                      sx={{
-                        borderLeft: currentRoom?.id === room.id ? 4 : 0,
-                        borderColor: 'primary.main',
-                      }}
-                    >
-                      <ListItemAvatar>
-                        <Avatar sx={{
-                          bgcolor: room.type === 'PRIVATE' ? 'secondary.main' : 'primary.main'
-                        }}>
+              <List sx={{ p: 0 }}>
+                {filteredRooms.map((room) => (
+                  <ListItemButton
+                    key={room.id}
+                    selected={currentRoom?.id === room.id}
+                    onClick={() => selectRoom(room)}
+                    sx={{
+                      py: 2,
+                      borderBottom: 1,
+                      borderColor: 'divider',
+                      '&.Mui-selected': {
+                        bgcolor: 'action.selected',
+                        '&:hover': {
+                          bgcolor: 'action.selected',
+                        },
+                      },
+                    }}
+                  >
+                    <ListItemAvatar>
+                      <Badge
+                        badgeContent={unreadCounts[room.id] || 0}
+                        color="error"
+                        max={99}
+                        invisible={!unreadCounts[room.id]}
+                      >
+                        <Avatar sx={{ bgcolor: 'primary.main' }}>
                           <GroupIcon />
                         </Avatar>
-                      </ListItemAvatar>
-
-                      <ListItemText
-                        primary={
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <Typography noWrap sx={{ flex: 1 }}>
-                              {room.name}
-                            </Typography>
-                            {room.type === 'PRIVATE' && (
-                              <LockIcon fontSize="small" />
-                            )}
-                          </Box>
-                        }
-                        secondary={`${room.participantCount || 0} participants`}
-                      />
-                    </ListItemButton>
-                  ))}
+                      </Badge>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={
+                        <Typography variant="subtitle1" fontWeight={unreadCounts[room.id] ? 700 : 500}>
+                          {room.name}
+                        </Typography>
+                      }
+                      secondary={
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <Typography variant="caption" color="text.secondary">
+                            {room.participantCount || 0} participants
+                          </Typography>
+                          {room.isPrivate && (
+                            <Chip icon={<LockIcon />} label="Privé" size="small" />
+                          )}
+                        </Box>
+                      }
+                    />
+                  </ListItemButton>
+                ))}
               </List>
             )}
-          </Box>
-
-          <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-            <Typography variant="body2" color="text.secondary">
-              {rooms.length} salons
-            </Typography>
           </Box>
         </Paper>
 
         {/* CHAT AREA */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {currentRoom ? (
             <>
-              {/* HEADER DESKTOP */}
+              {/* Chat Header */}
               <Paper
                 square
+                elevation={1}
                 sx={{
-                  display: { xs: 'none', md: 'flex' },
-                  alignItems: 'center',
                   p: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                   borderBottom: 1,
                   borderColor: 'divider',
-                  position: 'sticky',
-                  top: 0,
-                  zIndex: 1000,
                 }}
               >
-                <Avatar sx={{ mr: 2, bgcolor: 'primary.main' }}>
-                  <GroupIcon />
-                </Avatar>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="h6" noWrap>{currentRoom.name}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {participants.length} participants
-                  </Typography>
+                <Box display="flex" alignItems="center" gap={2}>
+                  <IconButton
+                    sx={{ display: { xs: 'block', md: 'none' } }}
+                    onClick={() => setShowRoomsDrawer(true)}
+                  >
+                    <MenuIcon />
+                  </IconButton>
+                  <Avatar sx={{ bgcolor: 'primary.main' }}>
+                    <GroupIcon />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="h6" fontWeight="bold">
+                      {currentRoom.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {participants.length} participant{participants.length > 1 ? 's' : ''}
+                      {typingUsers.size > 0 && ' • en train d\'écrire...'}
+                    </Typography>
+                  </Box>
                 </Box>
-                <IconButton onClick={() => setShowParticipantsDrawer(true)}>
-                  <Badge badgeContent={participants.length} color="primary">
-                    <PersonIcon />
-                  </Badge>
-                </IconButton>
+                <Box display="flex" gap={1}>
+                  <Tooltip title={isWsConnected ? 'Connecté' : 'Déconnecté'}>
+                    <IconButton color={isWsConnected ? 'success' : 'error'}>
+                      {isWsConnected ? <WifiIcon /> : <WifiOffIcon />}
+                    </IconButton>
+                  </Tooltip>
+                  <IconButton onClick={() => setShowParticipantsDrawer(true)}>
+                    <GroupIcon />
+                  </IconButton>
+                </Box>
               </Paper>
 
-              {/* MESSAGES */}
+              {/* Messages Area */}
               <Box
                 sx={{
                   flex: 1,
                   overflow: 'auto',
-                  p: { xs: 1, md: 2 },
-                  backgroundColor: 'grey.50',
+                  bgcolor: 'background.default',
+                  backgroundImage: 'linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)',
+                  backgroundSize: '20px 20px',
                 }}
               >
                 {isLoading ? (
-                  <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                  <Box display="flex" alignItems="center" justifyContent="center" height="100%">
                     <CircularProgress />
                   </Box>
                 ) : messages.length === 0 ? (
-                  <Box
-                    display="flex"
-                    flexDirection="column"
-                    alignItems="center"
-                    justifyContent="center"
-                    height="100%"
-                    gap={2}
-                  >
+                  <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100%" gap={2}>
                     <Avatar sx={{ width: 80, height: 80, bgcolor: 'primary.light' }}>
                       <GroupIcon sx={{ fontSize: 40 }} />
                     </Avatar>
                     <Typography variant="h6" color="text.secondary">
-                      Bienvenue dans #{currentRoom.name}!
+                      Aucun message pour le moment
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Soyez le premier à envoyer un message.
+                      Soyez le premier à envoyer un message !
                     </Typography>
                   </Box>
                 ) : (
-                  <>
-                    {Object.entries(groupMessagesByDate()).map(([date, dateMessages]) => (
-                      <React.Fragment key={date}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', my: 2 }}>
-                          <Box sx={{ flex: 1, height: 1, backgroundColor: 'divider' }} />
-                          <Typography variant="caption" sx={{ mx: 2, color: 'text.secondary' }}>
-                            {date}
-                          </Typography>
-                          <Box sx={{ flex: 1, height: 1, backgroundColor: 'divider' }} />
+                  <Box sx={{ py: 2 }}>
+                    {groupMessagesByDate(messages).map((group, groupIndex) => (
+                      <Box key={groupIndex}>
+                        {/* Date Separator */}
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            my: 3,
+                          }}
+                        >
+                          <Chip
+                            label={group.date}
+                            size="small"
+                            sx={{
+                              bgcolor: 'background.paper',
+                              fontWeight: 600,
+                              px: 2,
+                            }}
+                          />
                         </Box>
-                        {dateMessages.map((message, index) => {
-                          // DEBUG: Afficher les infos pour chaque message
-                          const messageDebug = {
-                            messageId: message.id,
-                            senderId: message.senderId,
-                            currentUserId: user?.id,
-                            isMe: message.senderId === user?.id,
-                            senderEmail: message.sender?.email,
-                            currentUserEmail: user?.email
-                          };
-                          console.log('📄 Rendering message:', messageDebug);
-                          
-                          // ✅ CORRECTION ICI: Vérifier correctement si c'est l'utilisateur courant
-                          // Plusieurs façons de vérifier :
-                          const isMe = 
-                            // 1. Par ID (le plus fiable)
-                            message.senderId === user?.id ||
-                            // 2. Par email (backup)
-                            (message.sender?.email && message.sender.email === user?.email) ||
-                            // 3. Comparer les objets si possible
-                            (message.sender && user && message.sender.id === user.id);
-                          
-                          console.log(`   -> isMe: ${isMe} (senderId:${message.senderId}, userId:${user?.id})`);
-                          
-                          const isConsecutive = index > 0 &&
-                            dateMessages[index - 1].senderId === message.senderId &&
-                            new Date(message.createdAt).getTime() - 
-                            new Date(dateMessages[index - 1].createdAt).getTime() < 300000;
 
-                          return (
-                            <Box
-                              key={message.id}
-                              sx={{
-                                mb: isConsecutive ? 0.5 : 2,
-                                display: 'flex',
-                                flexDirection: isMe ? 'row-reverse' : 'row',
-                                alignItems: 'flex-end',
-                                px: 2,
-                              }}
-                              onContextMenu={(e) => handleContextMenu(e, message)}
-                            >
-                              {/* Avatar - seulement pour les autres utilisateurs et non-consecutif */}
-                              {!isMe && !isConsecutive && (
-                                <Avatar
-                                  sx={{
-                                    width: 32,
-                                    height: 32,
-                                    mr: 1,
-                                    mb: 0.5,
-                                    bgcolor: 'primary.main',
-                                  }}
-                                >
-                                  {message.sender?.email?.charAt(0).toUpperCase() || 'U'}
-                                </Avatar>
-                              )}
-
-                              {/* Espace pour garder l'alignement */}
-                              {!isMe && isConsecutive && (
-                                <Box sx={{ width: 40, mr: 1 }} />
-                              )}
-
-                              {/* Espace pour aligner les messages de l'utilisateur */}
-                              {isMe && (
-                                <Box sx={{ flex: 1 }} />
-                              )}
-
-                              {/* Bubble de message */}
-                              <Tooltip
-                                title={`${message.sender?.email || `User ${message.senderId}`} • ${formatDateTime(message.createdAt)}`}
-                                placement={isMe ? 'left' : 'right'}
-                              >
-                                <Box
-                                  sx={{
-                                    maxWidth: { xs: '85%', md: '70%' },
-                                    bgcolor: isMe ? 'primary.main' : 'background.paper',
-                                    color: isMe ? 'white' : 'text.primary',
-                                    borderRadius: 2,
-                                    p: 1.5,
-                                    boxShadow: 1,
-                                    border: isMe ? 'none' : '1px solid',
-                                    borderColor: 'divider',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  {/* Nom de l'expéditeur (uniquement pour les autres utilisateurs) */}
-                                  {!isMe && !isConsecutive && (
-                                    <Typography
-                                      variant="caption"
-                                      sx={{
-                                        display: 'block',
-                                        mb: 0.5,
-                                        fontWeight: 'bold',
-                                        color: isMe ? 'inherit' : 'primary.main',
-                                      }}
-                                    >
-                                      {message.sender?.email?.split('@')[0] || `User ${message.senderId}`}
-                                    </Typography>
-                                  )}
-
-                                  {/* Contenu du message */}
-                                  <Typography variant="body1" sx={{ wordBreak: 'break-word' }}>
-                                    {message.content}
-                                  </Typography>
-
-                                  {/* Timestamp et statut */}
-                                  <Box sx={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    mt: 0.5,
-                                  }}>
-                                    <Typography 
-                                      variant="caption" 
-                                      sx={{ 
-                                        opacity: 0.7, 
-                                        fontSize: '0.75rem',
-                                        fontStyle: isMe ? 'italic' : 'normal'
-                                      }}
-                                    >
-                                      {formatTime(message.createdAt)}
-                                    </Typography>
-
-                                    {/* Statut d'envoi (uniquement pour l'utilisateur courant) */}
-                                    {isMe && (
-                                      <Box sx={{ ml: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                        {messageStatus[message.id] === 'sending' && (
-                                          <CircularProgress size={12} color="inherit" />
-                                        )}
-                                        {messageStatus[message.id] === 'sent' && (
-                                          <CheckCircleIcon sx={{ fontSize: 12 }} />
-                                        )}
-                                        {messageStatus[message.id] === 'error' && (
-                                          <Typography variant="caption" sx={{ color: 'error.light' }}>
-                                            ❌
-                                          </Typography>
-                                        )}
-                                      </Box>
-                                    )}
-                                  </Box>
-
-                                  {/* Indicateur de réponse */}
-                                  {replyingTo?.id === message.id && (
-                                    <Box
-                                      sx={{
-                                        position: 'absolute',
-                                        top: -4,
-                                        [isMe ? 'right' : 'left']: -4,
-                                        width: 8,
-                                        height: 8,
-                                        borderRadius: '50%',
-                                        bgcolor: 'primary.main',
-                                      }}
-                                    />
-                                  )}
-                                </Box>
-                              </Tooltip>
-
-                              {/* Espace de l'autre côté */}
-                              {!isMe && (
-                                <Box sx={{ flex: 1 }} />
-                              )}
-                            </Box>
-                          );
+                        {/* Messages for this date */}
+                        {group.messages.map((message) => {
+                          const isOwnMessage = message.senderId === user.id;
+                          return renderMessageBubble(message, isOwnMessage);
                         })}
-                      </React.Fragment>
+                      </Box>
                     ))}
                     <div ref={messagesEndRef} />
-                  </>
+                  </Box>
                 )}
               </Box>
 
-              {/* REPLY TO */}
-              {replyingTo && (
-                <Paper
-                  square
-                  sx={{
-                    p: 1,
-                    borderBottom: 1,
-                    borderColor: 'divider',
-                    bgcolor: 'grey.50',
-                  }}
-                >
-                  <Box display="flex" alignItems="center" justifyContent="space-between">
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <ReplyIcon color="primary" />
-                      <Typography variant="body2" color="text.secondary">
-                        Réponse à {getUserDisplayName(replyingTo)}
-                      </Typography>
-                    </Box>
-                    <IconButton size="small" onClick={() => setReplyingTo(null)}>
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Paper>
+              {/* Typing Indicator */}
+              {typingUsers.size > 0 && (
+                <Box sx={{ px: 3, py: 1, bgcolor: 'background.paper' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    {Array.from(typingUsers).map(userId => {
+                      const participant = participants.find(p => p.userId === userId);
+                      return participant?.user?.email?.split('@')[0] || 'Quelqu\'un';
+                    }).join(', ')} {typingUsers.size > 1 ? 'sont' : 'est'} en train d'écrire...
+                  </Typography>
+                </Box>
               )}
 
-              {/* INPUT */}
-              <Paper square sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-                <TextField
-                  fullWidth
-                  multiline
-                  maxRows={4}
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  // onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-                  //   if (e.key === 'Enter' && !e.shiftKey) {
-                  //     e.preventDefault();
-                  //     handleSendMessage();
-                  //   }
-                  // }}
-                  // onKeyPress={handleKeyPress}
-                  onBlur={handleStopTyping}
-                  placeholder="Écrivez votre message..."
-                  variant="outlined"
-                  disabled={!isWsConnected}
-                  inputRef={messageInputRef}
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          onClick={handleSendMessage}
-                          disabled={!newMessage.trim() || !isWsConnected}
-                          sx={{
-                            bgcolor: 'primary.main',
-                            color: 'white',
-                            '&:hover': { bgcolor: 'primary.dark' },
-                            '&.Mui-disabled': { bgcolor: 'grey.300' }
-                          }}
-                        >
-                          <SendIcon />
-                        </IconButton>
-                      </InputAdornment>
-                    ),
+              {/* Reply To Banner */}
+              {replyingTo && (
+                <Box
+                  sx={{
+                    px: 2,
+                    py: 1,
+                    bgcolor: 'action.hover',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderTop: 1,
+                    borderColor: 'divider',
                   }}
-                />
-                {!isWsConnected && (
-                  <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
-                    Connectez-vous pour envoyer des messages
-                  </Typography>
-                )}
+                >
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <ReplyIcon fontSize="small" />
+                    <Box>
+                      <Typography variant="caption" fontWeight="bold">
+                        Répondre à {replyingTo.sender?.email?.split('@')[0]}
+                      </Typography>
+                      <Typography variant="caption" display="block" color="text.secondary" noWrap sx={{ maxWidth: 300 }}>
+                        {replyingTo.content}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <IconButton size="small" onClick={() => setReplyingTo(null)}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              )}
+
+              {/* Message Input */}
+              <Paper
+                square
+                elevation={3}
+                sx={{
+                  p: 2,
+                  borderTop: 1,
+                  borderColor: 'divider',
+                }}
+              >
+                <Box display="flex" gap={1} alignItems="flex-end">
+                  <TextField
+                    fullWidth
+                    multiline
+                    maxRows={4}
+                    placeholder="Écrivez votre message..."
+                    value={newMessage}
+                    onChange={(e) => {
+                      setNewMessage(e.target.value);
+                      handleTyping();
+                    }}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    inputRef={messageInputRef}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 3,
+                      },
+                    }}
+                  />
+                  <IconButton
+                    color="primary"
+                    onClick={handleSendMessage}
+                    disabled={!newMessage.trim() || !isWsConnected}
+                    sx={{
+                      bgcolor: 'primary.main',
+                      color: 'white',
+                      '&:hover': {
+                        bgcolor: 'primary.dark',
+                      },
+                      '&.Mui-disabled': {
+                        bgcolor: 'action.disabledBackground',
+                      },
+                    }}
+                  >
+                    <SendIcon />
+                  </IconButton>
+                </Box>
               </Paper>
             </>
           ) : (
@@ -1099,13 +1091,12 @@ const ChatPage: React.FC = () => {
             ) : (
               <List>
                 {participants.map((participant) => (
-                  <ListItem key={participant.id} sx={{ py: 1 }}>
+                  <ListItem key={participant.id} sx={{ py: 1.5 }}>
                     <ListItemAvatar>
                       <Avatar sx={{
-                        bgcolor: participant.role === 'OWNER' ? 'error.main' :
-                          participant.role === 'ADMIN' ? 'primary.main' : 'grey.700'
+                        bgcolor: getAvatarColor(participant.userId),
                       }}>
-                        <PersonIcon />
+                        {getInitials(participant.user?.email)}
                       </Avatar>
                     </ListItemAvatar>
                     <ListItemText
@@ -1191,7 +1182,9 @@ const ChatPage: React.FC = () => {
             {participants.map((participant) => (
               <ListItem key={participant.id}>
                 <ListItemAvatar>
-                  <Avatar><PersonIcon /></Avatar>
+                  <Avatar sx={{ bgcolor: getAvatarColor(participant.userId) }}>
+                    {getInitials(participant.user?.email)}
+                  </Avatar>
                 </ListItemAvatar>
                 <ListItemText
                   primary={participant.user?.email?.split('@')[0] || `User ${participant.userId}`}
