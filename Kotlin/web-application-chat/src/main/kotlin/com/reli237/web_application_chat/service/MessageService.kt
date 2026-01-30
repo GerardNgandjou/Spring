@@ -8,9 +8,11 @@ import com.reli237.web_application_chat.model.MessageType
 import com.reli237.web_application_chat.repository.ChatRoomRepository
 import com.reli237.web_application_chat.repository.MessageRepository
 import com.reli237.web_application_chat.repository.UsersRepository
+import jakarta.persistence.EntityNotFoundException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
+import java.util.concurrent.ConcurrentHashMap
 
 @Service
 @Transactional
@@ -18,48 +20,65 @@ class MessageService(
     private val messageRepository: MessageRepository,
     private val chatRoomRepository: ChatRoomRepository,
     private val usersRepository: UsersRepository
-) {
 
+//    private val typingUsers = ConcurrentHashMap<Long, MutableSet<Long>>(),
+//    private val messageReadStatus = ConcurrentHashMap<Long, MutableMap<Long, Long>>()
+) {
     /**
      * Create a new message in a chat room
      */
-    fun createMessage(senderId: Long, request: MessageDto.MessageCreateRequest): MessageDto.MessageResponse {
-        val sender = usersRepository.findById(senderId)
-            .orElseThrow { throw IllegalArgumentException("Sender not found with id: $senderId") }
+    @Transactional
+    fun createMessage(userId: Long, request: MessageDto.MessageCreateRequest): MessageDto.MessageResponse {
+        // Logs détaillés
+        println("📝 ===== CREATE MESSAGE START =====")
+        println("📝 User ID: $userId")
+        println("📝 Room ID: ${request.chatRoomId}")
+        println("📝 Content: ${request.content}")
 
-        val chatRoom = chatRoomRepository.findById(request.chatRoomId)
-            .orElseThrow { throw IllegalArgumentException("Chat room not found with id: ${request.chatRoomId}") }
-
-        if (request.content.isBlank()) {
-            throw IllegalArgumentException("Message content cannot be empty")
+        // Vérifier l'utilisateur
+        val user = usersRepository.findById(userId).orElseThrow {
+            println("❌ User $userId not found")
+            throw EntityNotFoundException("User not found with id: $userId")
         }
+        println("✅ User found: ${user.email}")
 
+        // Vérifier la salle
+        val chatRoom = chatRoomRepository.findById(request.chatRoomId).orElseThrow {
+            println("❌ Chat room ${request.chatRoomId} not found")
+            throw EntityNotFoundException("Chat room not found with id: ${request.chatRoomId}")
+        }
+        println("✅ Chat room found: ${chatRoom.name}")
+
+        // Créer le message
         val message = Message(
             id = 0,
             content = request.content,
-            sender = sender,
+            sender = user,
             chatRoom = chatRoom,
             timeStamp = LocalDateTime.now(),
-            messageType = request.messageType,
+            messageType = MessageType.TEXT ,
             isDeleted = false
         )
 
+        // Sauvegarder
         val savedMessage = messageRepository.save(message)
-        return mapToMessageResponse(savedMessage)
-    }
+        println("✅ Message saved with ID: ${savedMessage.id}")
+        println("📝 ===== CREATE MESSAGE END =====")
 
-    /**
-     * Get message by ID
-     */
-    fun getMessageById(id: Long): MessageDto.MessageDetailResponse {
-        val message = messageRepository.findById(id)
-            .orElseThrow { throw IllegalArgumentException("Message not found with id: $id") }
-
-        if (message.isDeleted) {
-            throw IllegalStateException("Message has been deleted")
-        }
-
-        return mapToMessageDetailResponse(message)
+        // Retourner la réponse
+        return MessageDto.MessageResponse(
+            id = savedMessage.id,
+            content = savedMessage.content,
+            sender = UserDto.UserSimpleResponse(
+                id = savedMessage.sender.id,
+                email = savedMessage.sender.email
+                // add only what UserSimpleResponse needs
+            ),
+            chatRoomId = savedMessage.chatRoom.id,
+            timestamp = savedMessage.timeStamp,
+            messageType = savedMessage.messageType,
+            isDeleted = savedMessage.isDeleted
+        )
     }
 
     /**
@@ -82,6 +101,7 @@ class MessageService(
             .filter { !it.isDeleted }
             .map { mapToMessageResponse(it) }
     }
+
 
     /**
      * Get all messages sent by a specific user
@@ -247,5 +267,61 @@ class MessageService(
         // Adjust based on your actual ChatRoom entity and DTO structure
         return chatRoom
     }
+
+    /**
+     * Get list of users currently typing in a room
+     */
+//    fun getTypingUsersInRoom(roomId: Long): List<MessageDto.TypingUser> {
+//        val userIds = typingUsers[roomId] ?: return emptyList()
+//        return userIds.map { userId ->
+//            MessageDto.TypingUser(
+//                userId = userId,
+//                username = "User_$userId", // Replace it with actual username lookup
+//                startedAt = System.currentTimeMillis()
+//            )
+//        }
+//    }
+//
+//    /**
+//     * Get read status for a message
+//     */
+//    fun getMessageReadStatus(messageId: Long): List<MessageDto.UserReadInfo> {
+//        val readByMap = messageReadStatus[messageId] ?: return emptyList()
+//        return readByMap.map { (userId, readAt) ->
+//            MessageDto.UserReadInfo(
+//                userId = userId,
+//                username = "User_$userId", // Replace with actual username lookup
+//                readAt = readAt
+//            )
+//        }
+//    }
+//
+//    /**
+//     * Mark a message as read by a user
+//     */
+//    fun markMessageAsRead(messageId: Long, userId: Long, readAt: Long = System.currentTimeMillis()) {
+//        messageReadStatus.computeIfAbsent(messageId) { mutableMapOf() }[userId] = readAt
+//    }
+//
+//    /**
+//     * Check if a message has been read
+//     */
+//    fun isMessageRead(messageId: Long, userId: Long): Boolean {
+//        return messageReadStatus[messageId]?.containsKey(userId) ?: false
+//    }
+//
+//    /**
+//     * Clear typing status for a room (useful for cleanup)
+//     */
+//    fun clearRoomTypingStatus(roomId: Long) {
+//        typingUsers.remove(roomId)
+//    }
+//
+//    /**
+//     * Clear all read status for a message (useful for deletion)
+//     */
+//    fun clearMessageReadStatus(messageId: Long) {
+//        messageReadStatus.remove(messageId)
+//    }
 
 }

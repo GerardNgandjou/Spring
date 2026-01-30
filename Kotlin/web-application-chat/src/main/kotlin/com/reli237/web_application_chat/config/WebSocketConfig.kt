@@ -1,38 +1,43 @@
 package com.reli237.web_application_chat.config
 
-import org.springframework.context.annotation.Bean
+import com.reli237.web_application_chat.security.AuthInterceptor
 import org.springframework.context.annotation.Configuration
+import org.springframework.messaging.simp.config.ChannelRegistration
 import org.springframework.messaging.simp.config.MessageBrokerRegistry
-import org.springframework.scheduling.TaskScheduler
 import org.springframework.scheduling.annotation.EnableScheduling
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer
+
 @Configuration
 @EnableWebSocketMessageBroker
 @EnableScheduling
-class WebSocketConfig : WebSocketMessageBrokerConfigurer {
+class WebSocketConfig(
+    private val authInterceptor: AuthInterceptor
+) : WebSocketMessageBrokerConfigurer {
 
     override fun configureMessageBroker(config: MessageBrokerRegistry) {
-        // Enable a simple memory-based message broker to send messages to clients
-        config.enableSimpleBroker("/topic", "/queue")
-
-        // Set the prefix for messages that are bound for @MessageMapping-annotated methods
+        // Préfixe pour les messages envoyés AU serveur
         config.setApplicationDestinationPrefixes("/app")
 
-        // Enable user destination broadcasts
+        // Préfixe pour les messages envoyés PAR le serveur aux clients
+        // /topic = messages publics (broadcast)
+        // /queue = messages privés (dirigés vers un utilisateur spécifique)
+        config.enableSimpleBroker("/topic", "/queue")
+
+        // Préfixe pour les messages privés dirigés vers un utilisateur
         config.setUserDestinationPrefix("/user")
     }
 
     override fun registerStompEndpoints(registry: StompEndpointRegistry) {
-        // Register the "/ws" endpoint for WebSocket connections
+        // Endpoint WebSocket unique et cohérent
         registry.addEndpoint("/ws-chat")
-            .setAllowedOriginPatterns("*")
-            .withSockJS()  // Enable SockJS fallback options
+            .setAllowedOriginPatterns("*")  // À adapter en production!
+            .withSockJS()  // Fallback pour les navigateurs sans WebSocket natif
+    }
 
-        // Optional: Register a second endpoint without SockJS for pure WebSocket connections
-        registry.addEndpoint("/ws")
-            .setAllowedOriginPatterns("*")
+    override fun configureClientInboundChannel(registration: ChannelRegistration) {
+        // Ajouter l'intercepteur d'authentification
+        registration.interceptors(authInterceptor)
     }
 }

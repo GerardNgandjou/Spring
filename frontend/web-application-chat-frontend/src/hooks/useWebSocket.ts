@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { webSocketService } from '../services/websocket';
+import { webSocketService } from '../services/chatWebsocket';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 

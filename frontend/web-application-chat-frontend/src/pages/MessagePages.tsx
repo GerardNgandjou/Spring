@@ -37,11 +37,9 @@ import {
   Restore as RestoreIcon,
   Chat as ChatIcon,
 } from '@mui/icons-material';
-import { messageApi } from '../services/api/message';
 import { chatApi } from '../services/api/chat';
 import { toast } from 'react-hot-toast';
 import dayjs from 'dayjs';
-import { useAuth } from '../contexts/AuthContext';
 
 interface Message {
   id: number;
@@ -65,7 +63,6 @@ interface ChatRoom {
 }
 
 const MessagesPage: React.FC = () => {
-  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,7 +84,7 @@ const MessagesPage: React.FC = () => {
     
     try {
       // Charger les salons
-      const roomsResponse = await chatApi.getRooms();
+      const roomsResponse = await chatApi.getAllChatRooms();
       setRooms(roomsResponse.data || []);
       
       // Charger les messages de tous les salons
@@ -95,7 +92,7 @@ const MessagesPage: React.FC = () => {
       
       for (const room of roomsResponse.data || []) {
         try {
-          const messagesResponse = await messageApi.getOrderedMessages(room.id);
+          const messagesResponse = await chatApi.getOrderedMessages(room.id);
           const roomMessages = (messagesResponse.data || []).map((msg: any) => ({
             ...msg,
             chatRoom: {
@@ -155,10 +152,10 @@ const MessagesPage: React.FC = () => {
   const handleToggleDelete = async (message: Message, restore: boolean = false) => {
     try {
       if (restore) {
-        await messageApi.restoreMessage(message.id);
+        await chatApi.restoreMessage(message.id);
         toast.success('Message restauré avec succès');
       } else {
-        await messageApi.deleteMessage(message.id);
+        await chatApi.deleteMessage(message.id);
         toast.success('Message supprimé avec succès');
       }
       

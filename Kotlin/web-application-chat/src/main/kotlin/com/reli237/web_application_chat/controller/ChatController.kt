@@ -7,7 +7,9 @@ import com.reli237.web_application_chat.model.ParticipantRole
 import com.reli237.web_application_chat.service.ChatParticipantService
 import com.reli237.web_application_chat.service.ChatRoomService
 import com.reli237.web_application_chat.service.MessageService
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -18,13 +20,15 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import java.security.Principal
 
 @RestController
 @RequestMapping("/api/chat")
 class ChatController (
     private val chatRoomService: ChatRoomService,
     private val chatParticipantService: ChatParticipantService,
-    private val messageService: MessageService
+    private val messageService: MessageService,
+    private val messagingTemplate: SimpMessagingTemplate
 ) {
 
     // === Chat Room Endpoints ===
@@ -133,10 +137,10 @@ class ChatController (
         return ResponseEntity.ok(messageService.createMessage(userId, request))
     }
 
-    @GetMapping("/messages/{id}")
-    fun getMessageById(@PathVariable id: Long): ResponseEntity<MessageDto.MessageDetailResponse> {
-        return ResponseEntity.ok(messageService.getMessageById(id))
-    }
+//    @GetMapping("/messages/{id}")
+//    fun getMessageById(@PathVariable id: Long): ResponseEntity<MessageDto.MessageDetailResponse> {
+//        return ResponseEntity.ok(messageService.getMessageById(id))
+//    }
 
     @GetMapping("/rooms/{roomId}/messages")
     fun getMessagesByRoom(@PathVariable roomId: Long): ResponseEntity<List<MessageDto.MessageResponse>> {
@@ -188,4 +192,146 @@ class ChatController (
     ): ResponseEntity<Boolean> {
         return ResponseEntity.ok(chatParticipantService.isUserAdmin(userId, roomId))
     }
+
+    /**
+     * REST endpoint for typing notifications
+     * Notifies all users in a room that a user is typing
+     */
+    @PostMapping("/rooms/{roomId}/typing")
+    fun notifyTyping(
+        @PathVariable roomId: Long,
+        @RequestBody typingRequest: MessageDto.TypingRequest
+    ): ResponseEntity<MessageDto.TypingNotification> {
+        val typingNotification = MessageDto.TypingNotification(
+            typingRequest.userId,
+            typingRequest.isTyping
+        )
+
+        // Send typing notification to all users in the room
+        messagingTemplate.convertAndSend(
+            "/topic/room/$roomId/typing",
+            typingNotification
+        )
+
+        return ResponseEntity.ok(typingNotification)
+    }
+
+    /**
+     * REST endpoint to mark a message as read
+     * Notifies the sender that their message was read
+     */
+    @PostMapping("/messages/{messageId}/read")
+    fun markMessageAsRead(
+        @PathVariable messageId: Long,
+        @RequestParam readByUserId: Long,
+        principal: Principal
+    ): ResponseEntity<MessageDto.MessageReadNotification> {
+        val senderId = try {
+            principal.name.toLong()
+        } catch (e: NumberFormatException) {
+            return ResponseEntity.badRequest().build()
+        }
+
+        val messageReadNotification = MessageDto.MessageReadNotification(
+            messageId,
+            readByUserId,
+            System.currentTimeMillis()
+        )
+
+        // Notify the original sender that their message was read
+        messagingTemplate.convertAndSendToUser(
+            senderId.toString(),
+            "/queue/messages/read",
+            messageReadNotification
+        )
+
+        return ResponseEntity.ok(messageReadNotification)
+    }
+
+    /**
+     * REST endpoint to add a user to a chat room
+     * Notifies all users in the room that a new user joined
+     */
+//    @PostMapping("/rooms/{roomId}/users")
+//    fun addUserToRoom(
+//        @PathVariable roomId: Long,
+//        @RequestParam userId: Long,
+//        @RequestParam(defaultValue = "Anonymous") username: String = "Anonymous",
+//        principal: Principal? = null
+//    ): ResponseEntity<MessageDto.UserJoinEvent> {
+//        // Use provided username or extract from principal
+//        val finalUsername = if (username != "Anonymous") {
+//            username
+//        } else {
+//            principal?.name ?: "Anonymous"
+//        }
+//
+//        val userJoinEvent = WebChatController.UserJoinEvent(
+//            userId,
+//            finalUsername,
+//            "joined the chat"
+//        )
+//
+//        // Notify all users in the room about the new user
+//        messagingTemplate.convertAndSend(
+//            "/topic/room/$roomId/users",
+//            userJoinEvent
+//        )
+//
+//        return ResponseEntity.status(HttpStatus.CREATED).body(userJoinEvent)
+//    }
+//
+//    /**
+//     * REST endpoint to get typing status for a room
+//     */
+//    @GetMapping("/rooms/{roomId}/typing-status")
+//    fun getTypingStatus(
+//        @PathVariable roomId: Long
+//    ): ResponseEntity<Map<String, Any>> {
+//        // You can implement logic to track typing users
+//        val typingUsers = messageService.getTypingUsersInRoom(roomId)
+//
+//        return ResponseEntity.ok(mapOf(
+//            "roomId" to roomId,
+//            "typingUsers" to typingUsers,
+//            "timestamp" to System.currentTimeMillis()
+//        ))
+//    }
+//
+    /**
+     * REST endpoint to remove a user from a room
+     */
+    @DeleteMapping("/rooms/{roomId}/users/{userId}")
+    fun removeUserFromRoom(
+        @PathVariable roomId: Long,
+        @PathVariable userId: Long
+    ): ResponseEntity<Map<String, String>> {
+        messagingTemplate.convertAndSend(
+            "/topic/room/$roomId/users",
+            MessageDto.UserJoinEvent(userId, "Unknown", "left the chat")
+        )
+
+        return ResponseEntity.ok(mapOf(
+            "message" to "User removed from room",
+            "roomId" to roomId.toString(),
+            "userId" to userId.toString()
+        ))
+    }
+
+    /**
+     * REST endpoint to get message read status
+     */
+//    @GetMapping("/messages/{messageId}/read-status")
+//    fun getMessageReadStatus(
+//        @PathVariable messageId: Long
+//    ): ResponseEntity<Map<String, Any>> {
+//        val readStatus = messageService.getMessageReadStatus(messageId)
+//
+//        return ResponseEntity.ok(mapOf(
+//            "messageId" to messageId,
+//            "readBy" to readStatus,
+//            "timestamp" to System.currentTimeMillis()
+//        ))
+//    }
+
 }

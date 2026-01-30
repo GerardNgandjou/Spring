@@ -21,7 +21,6 @@ import {
   Alert,
 } from '@mui/material';
 import {
-  Person as PersonIcon,
   AdminPanelSettings as AdminIcon,
   PersonAdd as PersonAddIcon,
   Close as CloseIcon,
@@ -60,8 +59,8 @@ const ParticipantsPanel: React.FC<ParticipantsPanelProps> = ({
     if (!roomId) return;
     
     try {
-      const data = await chatApi.getParticipants(roomId);
-      setParticipants(data);
+      const data = await chatApi.getParticipantsByRoom(roomId);
+      // setParticipants(data);
     } catch (error) {
       console.error('Error loading participants:', error);
       toast.error('Erreur lors du chargement des participants');
@@ -72,7 +71,7 @@ const ParticipantsPanel: React.FC<ParticipantsPanelProps> = ({
   const loadAllUsers = async () => {
     try {
       const data = await userApi.getAllUsers();
-      setAllUsers(data);
+      // setAllUsers(data);
     } catch (error) {
       console.error('Error loading users:', error);
     }
@@ -113,7 +112,7 @@ const ParticipantsPanel: React.FC<ParticipantsPanelProps> = ({
     if (!window.confirm('Supprimer ce participant ?')) return;
 
     try {
-      await chatApi.removeParticipant(roomId, userId);
+      await chatApi.removeParticipant(roomId);
       await loadParticipants();
       toast.success('Participant supprimé');
     } catch (error) {

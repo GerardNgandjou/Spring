@@ -1,61 +1,59 @@
-// services/api/api.ts - CONFIGURATION COMPLÈTE
+// src/services/api/api.ts
 import axios from 'axios';
 
+// Configuration de base d'axios
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8081',
+  baseURL: 'http://localhost:8081', // URL de votre backend Spring Boot
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
 });
 
-// Interceptor pour ajouter le token à chaque requête
+// Intercepteur pour ajouter le token JWT automatiquement
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    
-    if (token && config.headers) {
+    if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
-    // Log pour debug
-    console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
-    
     return config;
   },
   (error) => {
-    console.error('Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
 
-// Interceptor pour gérer les réponses
+// Intercepteur pour gérer les erreurs
 api.interceptors.response.use(
-  (response) => {
-    // Log pour debug
-    console.log(`API Response: ${response.status} ${response.config.url}`);
-    return response;
-  },
-  (error) => {
-    console.error('Response error:', {
-      status: error.response?.status,
-      url: error.config?.url,
-      message: error.message,
-    });
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
     
-    // Si erreur 401 (Unauthorized)
-    if (error.response?.status === 401) {
-      console.log('Token expired or invalid, clearing auth...');
+    // Si erreur 401 (non autorisé) et pas déjà retenté
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
       
-      // Nettoyer le localStorage
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      
-      // Nettoyer les headers
-      delete api.defaults.headers.common['Authorization'];
-      
-      // Rediriger vers login
-      if (window.location.pathname !== '/login') {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          // Essayer de rafraîchir le token
+          const refreshResponse = await api.post('/api/auth/refresh-token', {}, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          if (refreshResponse.data.success) {
+            const newToken = refreshResponse.data.data.token;
+            localStorage.setItem('token', newToken);
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            return api(originalRequest);
+          }
+        }
+      } catch (refreshError) {
+        console.error('Token refresh failed:', refreshError);
+        // Rediriger vers la page de login
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         window.location.href = '/login';
       }
     }

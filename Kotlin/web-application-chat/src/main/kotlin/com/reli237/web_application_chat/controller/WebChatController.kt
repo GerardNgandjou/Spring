@@ -16,59 +16,283 @@ import java.security.Principal
 @Controller
 class WebChatController(
     private val messageService: MessageService,
-    private val chatRoomService: ChatRoomService,
     private val messagingTemplate: SimpMessagingTemplate
 ) {
 
-    // Send message to a specific chat room
+    /**
+     * Envoyer un message à une salle de chat spécifique
+     * Le message est diffusé à TOUS les utilisateurs abonnés à la salle
+     * ET à l'émetteur lui-même
+     *
+     * Endpoint pour envoyer un message WebSocket
+     *
+     * @param roomId ID du salon
+     * @param messageRequest Requête contenant le contenu du message
+     * @param headerAccessor Accesseur des headers STOMP pour récupérer l'utilisateur
+     */
+    // ==================== SEND MESSAGE ====================
+
+    /**
+     * Endpoint pour envoyer un message WebSocket
+     *
+     * ✅ IMPORTANT: Récupère l'userId depuis la session (stocké par AuthInterceptor)
+     *
+     * @param roomId ID du salon
+     * @param messageRequest Requête contenant le contenu du message
+     * @param headerAccessor Accesseur des headers STOMP pour récupérer les infos
+     */
     @MessageMapping("/chat.sendMessage/{roomId}")
-    @SendTo("/topic/room/{roomId}")
     fun sendMessage(
         @DestinationVariable roomId: Long,
         @Payload messageRequest: MessageDto.MessageCreateRequest,
         headerAccessor: SimpMessageHeaderAccessor
-    ): MessageDto.MessageResponse {
-        val principal = headerAccessor.user
-        val userId = principal?.name?.toLongOrNull() ?: throw IllegalArgumentException("User not authenticated")
+    ) {
+        println("\n🔥🔥🔥 ===== WEBSOCKET MESSAGE RECEIVED ===== 🔥🔥🔥")
+        println("📍 Room ID: $roomId")
+        println("📝 Content: ${messageRequest.content}")
+        println("🆔 Session ID: ${headerAccessor.sessionId}")
 
-        // Create and save the message
-        val messageResponse = messageService.createMessage(userId, messageRequest)
+        // ==================== RÉCUPÉRER L'UTILISATEUR ====================
 
-        // Also send to user's private queue for confirmation
-        messagingTemplate.convertAndSendToUser(
-            userId.toString(),
-            "/queue/messages/confirmation",
-            MessageConfirmation(messageResponse.id, "Message sent successfully")
-        )
+        // ✅ IMPORTANT: L'userId a été stocké en session par AuthInterceptor
+        val sessionAttributes = headerAccessor.sessionAttributes
+        println("📋 Session attributes keys: ${sessionAttributes?.keys}")
 
-        return messageResponse
+        val userId = sessionAttributes?.get("userId") as? Long
+
+        println("👤 User ID from session: $userId")
+
+        // ==================== VALIDER L'UTILISATEUR ====================
+
+        if (userId == null) {
+            println("❌ Utilisateur non authentifié!")
+            println("❌ Vérifier que AuthInterceptor a stocké userId en session!")
+
+            // Envoyer une erreur à l'utilisateur
+            try {
+                messagingTemplate.convertAndSendToUser(
+                    headerAccessor.sessionId ?: "unknown",
+                    "/queue/errors",
+                    MessageError(
+                        code = "NOT_AUTHENTICATED",
+                        message = "Utilisateur non authentifié - userId not found in session"
+                    )
+                )
+            } catch (e: Exception) {
+                println("❌ Impossible d'envoyer l'erreur: ${e.message}")
+            }
+            return
+        }
+
+        println("✅ Utilisateur authentifié (ID: $userId)")
+
+        // ==================== CRÉER LE MESSAGE ====================
+
+        try {
+            // Ajouter le roomId à la requête
+            messageRequest.chatRoomId = roomId
+
+            println("💾 Création du message en base de données...")
+            println("   - Room: $roomId")
+            println("   - User: $userId")
+            println("   - Content: ${messageRequest.content}")
+
+            // Créer et sauvegarder le message en base de données
+            val messageResponse = messageService.createMessage(userId, messageRequest)
+
+            println("✅ Message créé avec l'ID: ${messageResponse.id}")
+            println("⏰ Timestamp: ${messageResponse.timestamp}")
+
+            // ==================== BROADCAST LE MESSAGE ====================
+
+            println("📤 Envoi du message à /topic/room/$roomId")
+
+            // 1️⃣ ENVOYER LE MESSAGE À TOUS LES UTILISATEURS DE LA SALLE
+            // (y compris l'émetteur s'il est abonné)
+            messagingTemplate.convertAndSend(
+                "/topic/room/$roomId",
+                MessageEvent(
+                    type = "NEW_MESSAGE",
+                    message = messageResponse
+                )
+            )
+
+            println("✅ Message broadcasté à /topic/room/$roomId")
+
+            // 2️⃣ ENVOYER UNE CONFIRMATION À L'ÉMETTEUR
+            println("✅ Envoi de la confirmation à l'utilisateur $userId")
+
+            try {
+                messagingTemplate.convertAndSendToUser(
+                    userId.toString(),
+                    "/queue/messages/confirmation",
+                    MessageConfirmation(
+                        messageId = messageResponse.id,
+                        status = "SENT",
+                        content = "Message envoyé avec succès"
+                    )
+                )
+                println("✅ Confirmation envoyée")
+            } catch (e: Exception) {
+                println("⚠️ Impossible d'envoyer la confirmation: ${e.message}")
+            }
+
+            println("🔥🔥🔥 ===== MESSAGE SENT SUCCESSFULLY ===== 🔥🔥🔥\n")
+
+        } catch (e: Exception) {
+            println("❌ Erreur lors de la création du message: ${e.message}")
+            println("📋 Stack trace:")
+            e.printStackTrace()
+
+            // Envoyer l'erreur à l'utilisateur
+            try {
+                messagingTemplate.convertAndSendToUser(
+                    userId.toString(),
+                    "/queue/errors",
+                    MessageError(
+                        code = "MESSAGE_CREATION_ERROR",
+                        message = "Erreur lors de la création du message: ${e.message}"
+                    )
+                )
+            } catch (sendError: Exception) {
+                println("❌ Impossible d'envoyer l'erreur à l'utilisateur: ${sendError.message}")
+            }
+        }
     }
 
-    // Add user to chat room
+    // ==================== TYPING NOTIFICATION ====================
+
+    /**
+     * Endpoint pour envoyer une notification de frappe
+     *
+     * @param roomId ID du salon
+     * @param typingNotification Notification contenant userId et isTyping
+     */
+    @MessageMapping("/chat.typing/{roomId}")
+    fun typing(
+        @DestinationVariable roomId: Long,
+        @Payload typingNotification: TypingNotificationDto,
+        headerAccessor: SimpMessageHeaderAccessor
+    ) {
+        println("⌨️ Utilisateur ${typingNotification.userId} tape dans la salle $roomId: ${typingNotification.isTyping}")
+
+        // Envoyer la notification à tous les utilisateurs de la salle
+        try {
+            messagingTemplate.convertAndSend(
+                "/topic/room/$roomId/typing",
+                typingNotification
+            )
+            println("✅ Typing notification broadcastée")
+        } catch (e: Exception) {
+            println("❌ Erreur lors de l'envoi de la notification de frappe: ${e.message}")
+        }
+    }
+
+    // ==================== USER JOIN/LEAVE ====================
+
+    /**
+     * Notifier quand un utilisateur rejoint une salle
+     */
+    @MessageMapping("/chat.join/{roomId}")
+    fun joinRoom(
+        @DestinationVariable roomId: Long,
+        headerAccessor: SimpMessageHeaderAccessor
+    ) {
+        val sessionAttributes = headerAccessor.sessionAttributes
+        val userId = sessionAttributes?.get("userId") as? Long
+
+        if (userId != null) {
+            println("👋 Utilisateur $userId a rejoint la salle $roomId")
+
+            try {
+                messagingTemplate.convertAndSend(
+                    "/topic/room/$roomId/activity",
+                    UserActivityDto(
+                        type = "USER_JOINED",
+                        userId = userId,
+                        username = "User $userId",
+                        roomId = roomId
+                    )
+                )
+                println("✅ Activity notification envoyée")
+            } catch (e: Exception) {
+                println("❌ Erreur lors de l'envoi de l'activité: ${e.message}")
+            }
+        } else {
+            println("⚠️ userId null - impossible de notifier join")
+        }
+    }
+
+    /**
+     * Notifier quand un utilisateur quitte une salle
+     */
+    @MessageMapping("/chat.leave/{roomId}")
+    fun leaveRoom(
+        @DestinationVariable roomId: Long,
+        headerAccessor: SimpMessageHeaderAccessor
+    ) {
+        val sessionAttributes = headerAccessor.sessionAttributes
+        val userId = sessionAttributes?.get("userId") as? Long
+
+        if (userId != null) {
+            println("👋 Utilisateur $userId a quitté la salle $roomId")
+
+            try {
+                messagingTemplate.convertAndSend(
+                    "/topic/room/$roomId/activity",
+                    UserActivityDto(
+                        type = "USER_LEFT",
+                        userId = userId,
+                        username = "User $userId",
+                        roomId = roomId
+                    )
+                )
+                println("✅ Activity notification envoyée")
+            } catch (e: Exception) {
+                println("❌ Erreur lors de l'envoi de l'activité: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== ERROR HANDLING ====================
+
+    @MessageMapping("/error")
+    fun handleError(
+        @Payload error: MessageError,
+        headerAccessor: SimpMessageHeaderAccessor
+    ) {
+        println("❌ Erreur reçue: ${error.code} - ${error.message}")
+    }
+
+    /**
+     * Ajouter un utilisateur à la salle (notification)
+     */
     @MessageMapping("/chat.addUser/{roomId}")
-    @SendTo("/topic/room/{roomId}/users")
     fun addUser(
         @DestinationVariable roomId: Long,
         @Payload userId: Long,
         headerAccessor: SimpMessageHeaderAccessor
-    ): UserJoinEvent {
-        // You might want to validate if user can join the room here
+    ) {
+        println("👤 Utilisateur $userId rejoint la salle $roomId")
 
         val username = headerAccessor.user?.name ?: "Anonymous"
-        return UserJoinEvent(userId, username, "joined the chat")
+        println("👤 Username: $username")
+
+        // Notifier tous les utilisateurs de la salle
+        messagingTemplate.convertAndSend(
+            "/topic/room/$roomId/users",
+            UserEvent(
+                type = "USER_JOINED",
+                userId = userId,
+                username = username,
+                action = "joined the chat"
+            )
+        )
     }
 
-    // User is typing notification
-    @MessageMapping("/chat.typing/{roomId}")
-    @SendTo("/topic/room/{roomId}/typing")
-    fun typing(
-        @DestinationVariable roomId: Long,
-        @Payload typingRequest: TypingRequest
-    ): TypingNotification {
-        return TypingNotification(typingRequest.userId, typingRequest.isTyping)
-    }
-
-    // Private message between users
+    /**
+     * Message privé entre utilisateurs
+     */
     @MessageMapping("/chat.private")
     @SendToUser("/queue/private")
     fun sendPrivateMessage(
@@ -76,8 +300,9 @@ class WebChatController(
         principal: Principal
     ): PrivateMessageResponse {
         val senderId = principal.name.toLong()
+        println("🔒 Message privé de $senderId à ${privateMessageRequest.recipientId}")
 
-        // Send to recipient
+        // Envoyer au destinataire
         messagingTemplate.convertAndSendToUser(
             privateMessageRequest.recipientId.toString(),
             "/queue/private",
@@ -89,7 +314,7 @@ class WebChatController(
             )
         )
 
-        // Send confirmation back to sender
+        // Retourner une confirmation à l'émetteur
         return PrivateMessageResponse(
             senderId = senderId,
             recipientId = privateMessageRequest.recipientId,
@@ -99,7 +324,9 @@ class WebChatController(
         )
     }
 
-    // Notify user when their message is read
+    /**
+     * Notifier que le message a été lu
+     */
     @MessageMapping("/chat.message.read/{messageId}")
     fun messageRead(
         @DestinationVariable messageId: Long,
@@ -107,8 +334,9 @@ class WebChatController(
         principal: Principal
     ) {
         val senderId = principal.name.toLong()
+        println("👁️ Message $messageId lu par $readByUserId")
 
-        // Notify the original sender that their message was read
+        // Notifier l'émetteur original que son message a été lu
         messagingTemplate.convertAndSendToUser(
             senderId.toString(),
             "/queue/messages/read",
@@ -116,33 +344,74 @@ class WebChatController(
         )
     }
 
-    // Data classes for WebSocket communication
+    // ==================== DATA CLASSES ====================
+
+    /**
+     * Événement de message (pour la diffusion publique)
+     */
+    data class MessageEvent(
+        val type: String,
+        val message: MessageDto.MessageResponse,
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
+    /**
+     * Confirmation d'envoi de message
+     */
     data class MessageConfirmation(
         val messageId: Long,
-        val status: String
+        val status: String,
+        val content: String
     )
 
-    data class UserJoinEvent(
+    /**
+     * Erreur WebSocket
+     */
+    data class MessageError(
+        val code: String,
+        val message: String,
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
+    /**
+     * Événement utilisateur (join/leave)
+     */
+    data class UserEvent(
+        val type: String,
         val userId: Long,
         val username: String,
-        val action: String
+        val action: String,
+        val timestamp: Long = System.currentTimeMillis()
     )
 
+    /**
+     * Demande de saisie
+     */
     data class TypingRequest(
         val userId: Long,
         val isTyping: Boolean
     )
 
+    /**
+     * Notification de saisie
+     */
     data class TypingNotification(
         val userId: Long,
-        val isTyping: Boolean
+        val isTyping: Boolean,
+        val timestamp: Long = System.currentTimeMillis()
     )
 
+    /**
+     * Demande de message privé
+     */
     data class PrivateMessageRequest(
         val recipientId: Long,
         val content: String
     )
 
+    /**
+     * Réponse de message privé
+     */
     data class PrivateMessageResponse(
         val senderId: Long,
         val recipientId: Long,
@@ -151,9 +420,26 @@ class WebChatController(
         val status: String = "received"
     )
 
+    /**
+     * Notification de lecture
+     */
     data class MessageReadNotification(
         val messageId: Long,
         val readByUserId: Long,
         val readAt: Long
     )
+
+    data class TypingNotificationDto(
+        val userId: Long,
+        val isTyping: Boolean,
+        val roomId: Long? = null
+    )
+
+    data class UserActivityDto(
+        val type: String, // USER_JOINED, USER_LEFT
+        val userId: Long,
+        val username: String?,
+        val roomId: Long
+    )
+
 }

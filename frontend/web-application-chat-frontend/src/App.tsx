@@ -1,69 +1,133 @@
-// App.tsx - Version corrigée
+// src/App.tsx
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-import HomePage from './pages/HomePage';
+
+// Pages
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ChatPage from './pages/ChatPage';
 import ProfilePage from './pages/ProfilePage';
+import HomePage from './pages/HomePage';
 import ProtectedRoute from './components/common/ProtectedRoute';
-import AdminDashboard from './pages/AdminPages';
 import UsersPage from './pages/UserPage';
+import AdminDashboard from './pages/AdminPages';
+import ChatRoomPages from './pages/ChatRoomPages';
+import MessagesPage from './pages/MessagePages';
+import SettingsPage from './pages/SettingsPage';
+import UnauthorizedPage from './pages/UnauthorizedPage';
+import LogoutPage from './pages/LogoutPage';
+import NotFoundPage from './pages/NotFoundPage';
+import UserDetailPage from './pages/UserDetail';
 
-function App() {
+const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <Toaster />
-      <Router>
+    <Router>
+      <AuthProvider>
         <Routes>
-          {/* Route publique - Homepage accessible sans login */}
+          {/* Public routes */}
           <Route path="/" element={<HomePage />} />
-          
-          {/* Routes publiques */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
-          
-          {/* Routes protégées - utilisateur normal */}
-          <Route path="/chat" element={
-            <ProtectedRoute>
-              <ChatPage />
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/profile" element={
-            <ProtectedRoute>
-              <ProfilePage />
-            </ProtectedRoute>
-          } />
-          
-          {/* Routes protégées - administrateur */}
-          <Route path="/admin" element={
-            <ProtectedRoute adminOnly>
-              <AdminDashboard />
-            </ProtectedRoute>
-          } />
-          
-          <Route path="/admin/users" element={
-            <ProtectedRoute adminOnly>
-              <UsersPage />
-            </ProtectedRoute>
-          } />
-          
-          {/* Alias pour compatibilité */}
-          <Route path="/users" element={
-            <ProtectedRoute adminOnly>
-              <UsersPage />
-            </ProtectedRoute>
-          } />
-          
-          {/* Redirection pour les routes inconnues */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/unauthorized" element={<UnauthorizedPage />} />
+          <Route path="/logout" element={<LogoutPage />} />
+
+          {/* Protected routes */}
+          <Route
+            path="/chat"
+            element={
+              <ProtectedRoute>
+                <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+
+           <Route
+            path="/chat-rooms"
+            element={
+              <ProtectedRoute>
+                <ChatRoomPages />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route 
+            path="/users/:id" element={
+              <ProtectedRoute>
+                <UserDetailPage />
+              </ProtectedRoute>
+            } />
+
+
+           <Route
+            path="/message"
+            element={
+              <ProtectedRoute>
+                <MessagesPage />
+              </ProtectedRoute>
+            }
+          />
+
+           <Route
+            path="/setting"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/chat/:roomId"
+            element={
+              <ProtectedRoute>
+                <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute>
+                <UsersPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute requiredRole="ADMIN">
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/admin/*"
+            element={
+              <ProtectedRoute requiredRole="ADMIN">
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* 404 route */}
+          <Route path="not-found-page" element={<NotFoundPage />} />
         </Routes>
-      </Router>
-    </AuthProvider>
+      </AuthProvider>
+    </Router>
   );
-}
+};
 
 export default App;

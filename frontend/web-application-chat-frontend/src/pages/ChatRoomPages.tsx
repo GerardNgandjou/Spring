@@ -1,4 +1,4 @@
-// pages/ChatRoomsPage.tsx
+// pages/ChatRoomsPage.tsx - VERSION AMÉLIORÉE
 import React, { useState, useEffect } from 'react';
 import {
   Container,
@@ -25,14 +25,23 @@ import {
   FormControl,
   InputLabel,
   Select,
-  Grid,
   Card,
   CardContent,
+  CardActions,
   ToggleButton,
   ToggleButtonGroup,
+  DialogActions,
+  Tooltip,
+  Avatar,
+  Badge,
+  InputAdornment,
+  Divider,
+  alpha,
+  useTheme,
 } from '@mui/material';
 import {
   Edit as EditIcon,
+  Delete as DeleteIcon,
   Search as SearchIcon,
   Add as AddIcon,
   People as PeopleIcon,
@@ -40,25 +49,42 @@ import {
   Public as PublicIcon,
   Lock as LockIcon,
   Refresh as RefreshIcon,
+  Visibility as VisibilityIcon,
+  Group as GroupIcon,
+  FilterList as FilterIcon,
+  Sort as SortIcon,
+  Dashboard as DashboardIcon,
+  FormatListBulleted as ListIcon,
+  CalendarToday as CalendarIcon,
+  Info as InfoIcon,
+  Warning as WarningIcon,
+  FormatListBulleted,
 } from '@mui/icons-material';
 import { chatApi } from '../services/api/chat';
 import { toast } from 'react-hot-toast';
 import dayjs from 'dayjs';
-// Importez Grid2 au lieu de Grid
-// import Grid2 from '@mui/material'; // Note: Grid2
+import relativeTime from 'dayjs/plugin/relativeTime';
+import { useNavigate } from 'react-router-dom';
 
+dayjs.extend(relativeTime);
+
+// Dans ChatRoomsPage.tsx - modifiez l'interface ChatRoom
 interface ChatRoom {
   id: number;
   name: string;
   description?: string;
-  type: 'PRIVATE' | 'GROUP';
+  type: 'PRIVATE' | 'GROUP' | 'PUBLIC' | string; // Ajoutez | string
   participantCount: number;
   messageCount?: number;
   createdAt: string;
   updatedAt: string;
+  createdBy?: number;
 }
 
 const ChatRoomsPage: React.FC = () => {
+  const theme = useTheme();
+  const navigate = useNavigate();
+  
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,22 +92,34 @@ const ChatRoomsPage: React.FC = () => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [sortBy, setSortBy] = useState<'name' | 'participants' | 'created' | 'updated'>('created');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [viewMode, setViewMode] = useState<'list' | 'grid' | 'compact'>('list');
   
-  // États pour la modale de création/édition
+  // États pour la modale
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<ChatRoom | null>(null);
-  const [dialogLoading] = useState(false);
+  const [dialogLoading, setDialogLoading] = useState(false);
+  
   const [roomForm, setRoomForm] = useState({
     name: '',
     description: '',
-    type: 'GROUP' as 'PRIVATE' | 'GROUP',
+    type: 'GROUP' as 'PRIVATE' | 'GROUP' | 'PUBLIC',
   });
   
-  // États pour la modale de suppression
+  // États pour la suppression
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [roomToDelete] = useState<ChatRoom | null>(null);
-  const [deleteLoading] = useState(false);
+  const [roomToDelete, setRoomToDelete] = useState<ChatRoom | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  
+  // États pour les statistiques
+  const [stats, setStats] = useState({
+    totalRooms: 0,
+    privateRooms: 0,
+    publicRooms: 0,
+    totalParticipants: 0,
+    activeRooms: 0,
+  });
 
   // Charger les salons
   const loadRooms = async () => {
@@ -89,8 +127,25 @@ const ChatRoomsPage: React.FC = () => {
     setError(null);
     
     try {
-      const response = await chatApi.getRooms();
-      setRooms(response.data || []);
+      const response = await chatApi.getAllChatRooms();
+      const roomsData: ChatRoom[] = response.data || [];
+      setRooms(roomsData);
+      
+      // Calculer les statistiques
+      const privateRooms = roomsData.filter(room => room.type === 'PRIVATE').length;
+      const publicRooms = roomsData.filter(room => room.type === 'PUBLIC' || room.type === 'GROUP').length;
+      const totalParticipants = roomsData.reduce((sum, room) => sum + (room.participantCount || 0), 0);
+      const activeRooms = roomsData.filter(room => (room.participantCount || 0) > 0).length;
+      
+      setStats({
+        totalRooms: roomsData.length,
+        privateRooms,
+        publicRooms,
+        totalParticipants,
+        activeRooms,
+      });
+      
+      toast.success(`${roomsData.length} salons chargés`);
     } catch (error: any) {
       console.error('Error loading rooms:', error);
       setError(error.response?.data?.message || 'Erreur de connexion au serveur');
@@ -104,13 +159,46 @@ const ChatRoomsPage: React.FC = () => {
     loadRooms();
   }, []);
 
-  // Filtrer les salons
-  const filteredRooms = rooms.filter(room => {
-    const matchesSearch = room.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = typeFilter === 'ALL' || room.type === typeFilter;
-    
-    return matchesSearch && matchesType;
-  });
+  // Filtrer et trier les salons
+  const filteredRooms = rooms
+    .filter(room => {
+      const matchesSearch = 
+        room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (room.description && room.description.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchesType = typeFilter === 'ALL' || room.type === typeFilter;
+      
+      return matchesSearch && matchesType;
+    })
+    .sort((a, b) => {
+      let aValue: any, bValue: any;
+      
+      switch (sortBy) {
+        case 'name':
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+          break;
+        case 'participants':
+          aValue = a.participantCount || 0;
+          bValue = b.participantCount || 0;
+          break;
+        case 'created':
+          aValue = new Date(a.createdAt).getTime();
+          bValue = new Date(b.createdAt).getTime();
+          break;
+        case 'updated':
+          aValue = new Date(a.updatedAt).getTime();
+          bValue = new Date(b.updatedAt).getTime();
+          break;
+        default:
+          return 0;
+      }
+      
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
 
   // Pagination
   const paginatedRooms = filteredRooms.slice(
@@ -118,14 +206,14 @@ const ChatRoomsPage: React.FC = () => {
     page * rowsPerPage + rowsPerPage
   );
 
-  // Gérer la création/édition
+  // Gestion des actions
   const handleOpenDialog = (room?: ChatRoom) => {
     if (room) {
       setEditingRoom(room);
       setRoomForm({
         name: room.name,
         description: room.description || '',
-        type: room.type,
+        type: room.type as 'PRIVATE' | 'GROUP' | 'PUBLIC',
       });
     } else {
       setEditingRoom(null);
@@ -138,134 +226,257 @@ const ChatRoomsPage: React.FC = () => {
     setDialogOpen(true);
   };
 
-//   const handleSaveRoom = async () => {
-//     if (!roomForm.name.trim()) {
-//       toast.error('Le nom du salon est requis');
-//       return;
-//     }
+  const handleSaveRoom = async () => {
+    if (!roomForm.name.trim()) {
+      toast.error('Le nom du salon est requis');
+      return;
+    }
 
-//     setDialogLoading(true);
-//     try {
-//       if (editingRoom) {
-//         // Mise à jour
-//         const response = await chatApi.updateRoom(editingRoom.id, {
-//           name: roomForm.name,
-//           type: roomForm.type,
-//         });
-//         toast.success('Salon mis à jour avec succès');
-//         setRooms(rooms.map(r => 
-//           r.id === editingRoom.id ? response.data : r
-//         ));
-//       } else {
-//         // Création
-//         const response = await chatApi.createRoom({
-//           name: roomForm.name,
-//           type: roomForm.type,
-//           userIds: [user!.id],
-//         });
-//         toast.success('Salon créé avec succès');
-//         setRooms([...rooms, response.data]);
-//       }
-//       setDialogOpen(false);
-//     } catch (error: any) {
-//       console.error('Error saving room:', error);
-//       toast.error(error.response?.data?.message || 'Erreur lors de la sauvegarde');
-//     } finally {
-//       setDialogLoading(false);
-//     }
-//   };
+    setDialogLoading(true);
+    try {
+      if (editingRoom) {
+        // Mise à jour
+        const response = await chatApi.updateChatRoom(editingRoom.id, {
+          name: roomForm.name,
+          description: roomForm.description || undefined,
+          type: roomForm.type,
+        });
+        
+        setRooms(prevRooms =>
+          prevRooms.map(room =>
+            room.id === editingRoom.id ? response.data : room
+          )
+        );
+        toast.success('Salon mis à jour avec succès');
+      } else {
+        // Création
+        const response = await chatApi.createChatRoom({
+          name: roomForm.name,
+          description: roomForm.description || undefined,
+          type: roomForm.type,
+        });
+        
+        setRooms(prevRooms => [...prevRooms, response.data]);
+        toast.success('Salon créé avec succès');
+      }
+      
+      setDialogOpen(false);
+      setEditingRoom(null);
+      setRoomForm({ name: '', description: '', type: 'GROUP' });
+      
+    } catch (error: any) {
+      console.error('Error saving room:', error);
+      toast.error(error.response?.data?.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setDialogLoading(false);
+    }
+  };
 
-//   // Gérer la suppression
-//   const handleDeleteClick = (room: ChatRoom) => {
-//     setRoomToDelete(room);
-//     setDeleteDialogOpen(true);
-//   };
+  const handleDeleteClick = (room: ChatRoom) => {
+    setRoomToDelete(room);
+    setDeleteDialogOpen(true);
+  };
 
-//   const handleDeleteConfirm = async () => {
-//     if (!roomToDelete) return;
+  const handleDeleteConfirm = async () => {
+    if (!roomToDelete) return;
     
-//     setDeleteLoading(true);
-//     try {
-//       await chatApi.deleteRoom(roomToDelete.id);
-//       toast.success('Salon supprimé avec succès');
-//       setRooms(rooms.filter(r => r.id !== roomToDelete.id));
-//     } catch (error: any) {
-//       console.error('Error deleting room:', error);
-//       toast.error(error.response?.data?.message || 'Erreur lors de la suppression');
-//     } finally {
-//       setDeleteLoading(false);
-//       setDeleteDialogOpen(false);
-//       setRoomToDelete(null);
-//     }
-//   };
+    setDeleteLoading(true);
+    try {
+      await chatApi.deleteChatRoom(roomToDelete.id);
+      
+      setRooms(prevRooms => prevRooms.filter(room => room.id !== roomToDelete.id));
+      toast.success('Salon supprimé avec succès');
+      
+      setDeleteDialogOpen(false);
+      setRoomToDelete(null);
+      
+    } catch (error: any) {
+      console.error('Error deleting room:', error);
+      toast.error(error.response?.data?.message || 'Erreur lors de la suppression');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
-  // Carte de salon (vue grille)
+  const handleJoinRoom = (roomId: number) => {
+    navigate(`/chat/${roomId}`);
+  };
+
+  const handleViewDetails = (roomId: number) => {
+    navigate(`/rooms/${roomId}`);
+  };
+
+  const handleSort = (field: typeof sortBy) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('desc');
+    }
+  };
+
+  // Composants
   const RoomCard = ({ room }: { room: ChatRoom }) => (
-    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Card 
+      sx={{ 
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        transition: 'all 0.2s ease',
+        '&:hover': {
+          transform: 'translateY(-4px)',
+          boxShadow: theme.shadows[8],
+        }
+      }}
+    >
       <CardContent sx={{ flexGrow: 1 }}>
-        <Box display="flex" alignItems="center" gap={1} mb={1}>
-          {room.type === 'PRIVATE' ? (
-            <LockIcon color="action" fontSize="small" />
-          ) : (
-            <PublicIcon color="action" fontSize="small" />
-          )}
-          <Typography variant="h6" noWrap>
-            {room.name}
-          </Typography>
+        <Box display="flex" alignItems="center" gap={1} mb={2}>
+          <Avatar
+            sx={{
+              bgcolor: room.type === 'PRIVATE' ? theme.palette.error.main : theme.palette.primary.main,
+              width: 48,
+              height: 48,
+            }}
+          >
+            {room.type === 'PRIVATE' ? <LockIcon /> : <GroupIcon />}
+          </Avatar>
+          <Box flex={1} minWidth={0}>
+            <Typography variant="h6" noWrap title={room.name}>
+              {room.name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {room.type === 'PRIVATE' ? 'Salon privé' : 'Salon public'}
+            </Typography>
+          </Box>
         </Box>
         
         {room.description && (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {room.description.length > 100 
-              ? `${room.description.substring(0, 100)}...` 
-              : room.description}
+          <Typography 
+            variant="body2" 
+            color="text.secondary" 
+            sx={{ 
+              mb: 2,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {room.description}
           </Typography>
         )}
         
         <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Box display="flex" alignItems="center" gap={2}>
-            <Chip
-              icon={<PeopleIcon />}
-              label={`${room.participantCount}`}
-              size="small"
-              variant="outlined"
-            />
-            {room.messageCount !== undefined && (
+          <Box display="flex" gap={2}>
+            <Tooltip title="Participants">
               <Chip
-                icon={<MessageIcon />}
-                label={`${room.messageCount}`}
+                icon={<PeopleIcon />}
+                label={room.participantCount}
                 size="small"
                 variant="outlined"
               />
+            </Tooltip>
+            {room.messageCount !== undefined && (
+              <Tooltip title="Messages">
+                <Chip
+                  icon={<MessageIcon />}
+                  label={room.messageCount}
+                  size="small"
+                  variant="outlined"
+                />
+              </Tooltip>
             )}
           </Box>
-          <Chip
-            label={room.type === 'PRIVATE' ? 'Privé' : 'Public'}
-            size="small"
-            color={room.type === 'PRIVATE' ? 'secondary' : 'primary'}
-          />
+          
+          <Tooltip title={dayjs(room.createdAt).format('DD/MM/YYYY HH:mm')}>
+            <Typography variant="caption" color="text.secondary">
+              {dayjs(room.createdAt).fromNow()}
+            </Typography>
+          </Tooltip>
         </Box>
       </CardContent>
       
-      {/* <CardActions>
-        <Button size="small" onClick={() => handleOpenDialog(room)}>
-          Modifier
-        </Button>
-        <Button 
-          size="small" 
-          color="error"
-          onClick={() => handleDeleteClick(room)}
-        >
-          Supprimer
-        </Button>
-      </CardActions> */}
+      <Divider />
+      
+      <CardActions sx={{ justifyContent: 'space-between', p: 1.5 }}>
+        <Tooltip title="Rejoindre">
+          <Button
+            size="small"
+            startIcon={<VisibilityIcon />}
+            onClick={() => handleJoinRoom(room.id)}
+          >
+            Rejoindre
+          </Button>
+        </Tooltip>
+        
+        <Box>
+          <Tooltip title="Modifier">
+            <IconButton
+              size="small"
+              onClick={() => handleOpenDialog(room)}
+            >
+              <EditIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Supprimer">
+            <IconButton
+              size="small"
+              color="error"
+              onClick={() => handleDeleteClick(room)}
+            >
+              <DeleteIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </CardActions>
     </Card>
   );
 
-  if (loading) {
+  const StatCard = ({ 
+    title, 
+    value, 
+    icon: Icon, 
+    color, 
+    subtitle 
+  }: { 
+    title: string; 
+    value: number; 
+    icon: any; 
+    color: string; 
+    subtitle?: string;
+  }) => (
+    <Paper 
+      elevation={0}
+      sx={{ 
+        p: 2,
+        bgcolor: alpha(color, 0.1),
+        border: `1px solid ${alpha(color, 0.2)}`,
+        borderRadius: 2,
+        flex: 1,
+        minWidth: 120,
+      }}
+    >
+      <Box display="flex" alignItems="center" gap={1} mb={1}>
+        <Icon sx={{ color }} />
+        <Typography variant="body2" color="text.secondary">
+          {title}
+        </Typography>
+      </Box>
+      <Typography variant="h4" color={color}>
+        {value}
+      </Typography>
+      {subtitle && (
+        <Typography variant="caption" color="text.secondary">
+          {subtitle}
+        </Typography>
+      )}
+    </Paper>
+  );
+
+  if (loading && rooms.length === 0) {
     return (
-      <Container maxWidth="lg">
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+      <Container maxWidth="xl">
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
           <CircularProgress />
         </Box>
       </Container>
@@ -273,46 +484,130 @@ const ChatRoomsPage: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      {/* En-tête */}
-      <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h4">
-            Gestion des salons de chat
-          </Typography>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      {/* En-tête avec statistiques */}
+      <Paper 
+        elevation={0}
+        sx={{ 
+          p: 4, 
+          mb: 4, 
+          borderRadius: 3,
+          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)} 0%, ${alpha(theme.palette.secondary.main, 0.1)} 100%)`,
+          border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        }}
+      >
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Box>
+            <Typography variant="h3" gutterBottom fontWeight="bold">
+              Gestion des salons
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Gérez tous les salons de discussion de votre application
+            </Typography>
+          </Box>
+          
           <Box display="flex" gap={1}>
+            <Tooltip title="Actualiser">
+              <IconButton 
+                onClick={loadRooms}
+                sx={{ 
+                  bgcolor: 'white',
+                  boxShadow: theme.shadows[1],
+                }}
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+            
             <Button
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => handleOpenDialog()}
+              sx={{
+                borderRadius: 2,
+                px: 3,
+              }}
             >
               Nouveau salon
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={loadRooms}
-            >
-              Actualiser
             </Button>
           </Box>
         </Box>
         
+        {/* Statistiques */}
+        <Box display="flex" flexWrap="wrap" gap={2} mb={3}>
+          <StatCard
+            title="Total"
+            value={stats.totalRooms}
+            icon={DashboardIcon}
+            color={theme.palette.primary.main}
+            subtitle="salons"
+          />
+          
+          <StatCard
+            title="Publics"
+            value={stats.publicRooms}
+            icon={PublicIcon}
+            color={theme.palette.success.main}
+            subtitle="salons"
+          />
+          
+          <StatCard
+            title="Privés"
+            value={stats.privateRooms}
+            icon={LockIcon}
+            color={theme.palette.error.main}
+            subtitle="salons"
+          />
+          
+          <StatCard
+            title="Participants"
+            value={stats.totalParticipants}
+            icon={PeopleIcon}
+            color={theme.palette.warning.main}
+            subtitle="total"
+          />
+          
+          <StatCard
+            title="Actifs"
+            value={stats.activeRooms}
+            icon={MessageIcon}
+            color={theme.palette.info.main}
+            subtitle="salons"
+          />
+        </Box>
+        
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert 
+            severity="error" 
+            icon={<WarningIcon />}
+            sx={{ 
+              mb: 2,
+              borderRadius: 2,
+            }}
+          >
             {error}
           </Alert>
         )}
         
-        {/* Barre de filtres */}
-        <Box display="flex" gap={2} mb={2}>
+        {/* Barre de contrôle */}
+        <Box display="flex" flexWrap="wrap" gap={2} alignItems="center">
           <TextField
-            fullWidth
             placeholder="Rechercher un salon..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             InputProps={{
-              startAdornment: <SearchIcon sx={{ mr: 1, color: 'action.active' }} />,
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ 
+              flex: 1,
+              minWidth: 200,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+              }
             }}
           />
           
@@ -322,10 +617,41 @@ const ChatRoomsPage: React.FC = () => {
               value={typeFilter}
               label="Type"
               onChange={(e) => setTypeFilter(e.target.value)}
+              sx={{ borderRadius: 2 }}
             >
-              <MenuItem value="ALL">Tous les types</MenuItem>
-              <MenuItem value="GROUP">Public</MenuItem>
-              <MenuItem value="PRIVATE">Privé</MenuItem>
+              <MenuItem value="ALL">
+                <Box display="flex" alignItems="center" gap={1}>
+                  <FilterIcon fontSize="small" />
+                  Tous les types
+                </Box>
+              </MenuItem>
+              <MenuItem value="PUBLIC">
+                <Box display="flex" alignItems="center" gap={1}>
+                  <PublicIcon fontSize="small" />
+                  Public
+                </Box>
+              </MenuItem>
+              <MenuItem value="PRIVATE">
+                <Box display="flex" alignItems="center" gap={1}>
+                  <LockIcon fontSize="small" />
+                  Privé
+                </Box>
+              </MenuItem>
+            </Select>
+          </FormControl>
+          
+          <FormControl sx={{ minWidth: 120 }}>
+            <InputLabel>Trier par</InputLabel>
+            <Select
+              value={sortBy}
+              label="Trier par"
+              onChange={(e) => setSortBy(e.target.value as any)}
+              sx={{ borderRadius: 2 }}
+            >
+              <MenuItem value="name">Nom</MenuItem>
+              <MenuItem value="participants">Participants</MenuItem>
+              <MenuItem value="created">Date de création</MenuItem>
+              <MenuItem value="updated">Dernière activité</MenuItem>
             </Select>
           </FormControl>
           
@@ -334,105 +660,255 @@ const ChatRoomsPage: React.FC = () => {
             exclusive
             onChange={(_, newMode) => newMode && setViewMode(newMode)}
             size="small"
+            sx={{ 
+              borderRadius: 2,
+              '& .MuiToggleButton-root': {
+                borderRadius: '8px !important',
+              }
+            }}
           >
-            <ToggleButton value="list">
-              Liste
+            <ToggleButton value="list" title="Vue liste">
+              <ListIcon />
             </ToggleButton>
-            <ToggleButton value="grid">
-              Grille
+            <ToggleButton value="grid" title="Vue grille">
+              <DashboardIcon />
+            </ToggleButton>
+            <ToggleButton value="compact" title="Vue compacte">
+              <FormatListBulleted />
             </ToggleButton>
           </ToggleButtonGroup>
         </Box>
         
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
           {filteredRooms.length} salon(s) trouvé(s)
+          {searchTerm && ` pour "${searchTerm}"`}
         </Typography>
       </Paper>
 
       {/* Vue grille */}
-      {viewMode === 'grid' ? (
-        
-        // Puis utilisez comme ceci :
-        <Grid container spacing={3}>
-        {paginatedRooms.map((room) => (
-            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={room.id}>
-            <RoomCard room={room} />
-            </Grid>
-        ))}
-        </Grid>
-      ) : (
-        /* Vue tableau */
-        <Paper elevation={3}>
+      {viewMode === 'grid' && (
+        <Box
+          display="flex"
+          flexWrap="wrap"
+          gap={3}
+        >
+          {paginatedRooms.map((room) => (
+            <Box
+              key={room.id}
+              flex="1 1 calc(33.333% - 16px)"
+              minWidth="280px"
+              maxWidth="400px"
+            >
+              <RoomCard room={room} />
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* Vue liste */}
+      {viewMode === 'list' && (
+        <Paper 
+          elevation={0}
+          sx={{ 
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+            overflow: 'hidden',
+          }}
+        >
           <TableContainer>
             <Table>
               <TableHead>
-                <TableRow>
-                  <TableCell>Nom</TableCell>
+                <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.02) }}>
+                  <TableCell>
+                    <Button
+                      size="small"
+                      onClick={() => handleSort('name')}
+                      startIcon={<SortIcon />}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      Nom
+                      {sortBy === 'name' && (
+                        <Typography component="span" sx={{ ml: 0.5 }}>
+                          {sortOrder === 'asc' ? '↑' : '↓'}
+                        </Typography>
+                      )}
+                    </Button>
+                  </TableCell>
                   <TableCell>Description</TableCell>
                   <TableCell>Type</TableCell>
-                  <TableCell>Participants</TableCell>
-                  <TableCell>Créé le</TableCell>
+                  <TableCell>
+                    <Button
+                      size="small"
+                      onClick={() => handleSort('participants')}
+                      startIcon={<PeopleIcon />}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      Participants
+                      {sortBy === 'participants' && (
+                        <Typography component="span" sx={{ ml: 0.5 }}>
+                          {sortOrder === 'asc' ? '↑' : '↓'}
+                        </Typography>
+                      )}
+                    </Button>
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      size="small"
+                      onClick={() => handleSort('created')}
+                      startIcon={<CalendarIcon />}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      Créé le
+                      {sortBy === 'created' && (
+                        <Typography component="span" sx={{ ml: 0.5 }}>
+                          {sortOrder === 'asc' ? '↑' : '↓'}
+                        </Typography>
+                      )}
+                    </Button>
+                  </TableCell>
                   <TableCell align="center">Actions</TableCell>
                 </TableRow>
               </TableHead>
+              
               <TableBody>
                 {paginatedRooms.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} align="center">
-                      Aucun salon trouvé
+                    <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <SearchIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
+                        <Typography variant="h6" color="text.secondary" gutterBottom>
+                          Aucun salon trouvé
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {searchTerm ? `Aucun résultat pour "${searchTerm}"` : 'Créez votre premier salon'}
+                        </Typography>
+                        {!searchTerm && (
+                          <Button
+                            variant="outlined"
+                            startIcon={<AddIcon />}
+                            onClick={() => handleOpenDialog()}
+                            sx={{ mt: 2 }}
+                          >
+                            Créer un salon
+                          </Button>
+                        )}
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ) : (
                   paginatedRooms.map((room) => (
-                    <TableRow key={room.id} hover>
+                    <TableRow 
+                      key={room.id} 
+                      hover
+                      sx={{ 
+                        '&:hover': { 
+                          bgcolor: alpha(theme.palette.primary.main, 0.02) 
+                        } 
+                      }}
+                    >
+                      <TableCell>
+                        <Box display="flex" alignItems="center" gap={2}>
+                          <Avatar
+                            sx={{
+                              bgcolor: room.type === 'PRIVATE' ? theme.palette.error.main : theme.palette.primary.main,
+                              width: 40,
+                              height: 40,
+                            }}
+                          >
+                            {room.type === 'PRIVATE' ? <LockIcon /> : <GroupIcon />}
+                          </Avatar>
+                          <Box>
+                            <Typography fontWeight="medium">
+                              {room.name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              ID: {room.id}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 200 }}>
+                          {room.description || '—'}
+                        </Typography>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <Chip
+                          icon={room.type === 'PRIVATE' ? <LockIcon /> : <PublicIcon />}
+                          label={room.type === 'PRIVATE' ? 'Privé' : 'Public'}
+                          size="small"
+                          color={room.type === 'PRIVATE' ? 'error' : 'primary'}
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      
                       <TableCell>
                         <Box display="flex" alignItems="center" gap={1}>
-                          {room.type === 'PRIVATE' ? (
-                            <LockIcon fontSize="small" color="action" />
-                          ) : (
-                            <PublicIcon fontSize="small" color="action" />
+                          <Badge 
+                            badgeContent={room.participantCount} 
+                            color="primary"
+                            max={999}
+                          >
+                            <PeopleIcon color="action" />
+                          </Badge>
+                          {room.messageCount !== undefined && (
+                            <Badge 
+                              badgeContent={room.messageCount} 
+                              color="secondary"
+                              max={999}
+                              sx={{ ml: 1 }}
+                            >
+                              <MessageIcon color="action" />
+                            </Badge>
                           )}
-                          <Typography fontWeight="medium">
-                            {room.name}
+                        </Box>
+                      </TableCell>
+                      
+                      <TableCell>
+                        <Box>
+                          <Typography variant="body2">
+                            {dayjs(room.createdAt).format('DD/MM/YYYY')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {dayjs(room.createdAt).fromNow()}
                           </Typography>
                         </Box>
                       </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" color="text.secondary">
-                          {room.description || 'Aucune description'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={room.type === 'PRIVATE' ? 'Privé' : 'Public'}
-                          size="small"
-                          color={room.type === 'PRIVATE' ? 'secondary' : 'primary'}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Box display="flex" alignItems="center" gap={1}>
-                          <PeopleIcon fontSize="small" color="action" />
-                          <Typography>{room.participantCount}</Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        {dayjs(room.createdAt).format('DD/MM/YYYY')}
-                      </TableCell>
+                      
                       <TableCell align="center">
-                        <IconButton
-                          color="primary"
-                          onClick={() => handleOpenDialog(room)}
-                          title="Modifier"
-                        >
-                          <EditIcon />
-                        </IconButton>
-                        {/* <IconButton
-                          color="error"
-                          onClick={() => handleDeleteClick(room)}
-                          title="Supprimer"
-                        >
-                          <DeleteIcon />
-                        </IconButton> */}
+                        <Box display="flex" gap={1} justifyContent="center">
+                          <Tooltip title="Rejoindre">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleJoinRoom(room.id)}
+                            >
+                              <VisibilityIcon />
+                            </IconButton>
+                          </Tooltip>
+                          
+                          <Tooltip title="Modifier">
+                            <IconButton
+                              size="small"
+                              color="info"
+                              onClick={() => handleOpenDialog(room)}
+                            >
+                              <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                          
+                          <Tooltip title="Supprimer">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDeleteClick(room)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
                       </TableCell>
                     </TableRow>
                   ))
@@ -442,23 +918,99 @@ const ChatRoomsPage: React.FC = () => {
           </TableContainer>
           
           {/* Pagination */}
-          <TablePagination
-            component="div"
-            count={filteredRooms.length}
-            page={page}
-            onPageChange={(_, newPage) => setPage(newPage)}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={(e) => {
-              setRowsPerPage(parseInt(e.target.value, 10));
-              setPage(0);
-            }}
-            rowsPerPageOptions={[5, 10, 25]}
-            labelRowsPerPage="Lignes par page:"
-            labelDisplayedRows={({ from, to, count }) =>
-              `${from}-${to} sur ${count}`
-            }
-          />
+          {filteredRooms.length > 0 && (
+            <TablePagination
+              component="div"
+              count={filteredRooms.length}
+              page={page}
+              onPageChange={(_, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setRowsPerPage(parseInt(e.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[5, 10, 25, 50]}
+              labelRowsPerPage="Lignes par page:"
+              labelDisplayedRows={({ from, to, count }) =>
+                `${from}-${to} sur ${count}`
+              }
+              sx={{
+                borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+              }}
+            />
+          )}
         </Paper>
+      )}
+
+      {/* Vue compacte */}
+      {viewMode === 'compact' && (
+        <Box display="flex" flexDirection="column" gap={1}>
+          {paginatedRooms.map((room) => (
+            <Paper
+              key={room.id}
+              elevation={0}
+              sx={{
+                p: 2,
+                borderRadius: 2,
+                border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+                '&:hover': {
+                  bgcolor: alpha(theme.palette.primary.main, 0.02),
+                }
+              }}
+            >
+              <Box display="flex" alignItems="center" justifyContent="space-between">
+                <Box display="flex" alignItems="center" gap={2} flex={1}>
+                  <Avatar sx={{ width: 32, height: 32 }}>
+                    {room.type === 'PRIVATE' ? <LockIcon /> : <GroupIcon />}
+                  </Avatar>
+                  
+                  <Box flex={1} minWidth={0}>
+                    <Typography variant="body1" fontWeight="medium" noWrap>
+                      {room.name}
+                    </Typography>
+                    {room.description && (
+                      <Typography variant="caption" color="text.secondary" noWrap>
+                        {room.description}
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
+                
+                <Box display="flex" alignItems="center" gap={3}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <PeopleIcon fontSize="small" color="action" />
+                    <Typography variant="body2">
+                      {room.participantCount}
+                    </Typography>
+                  </Box>
+                  
+                  <Chip
+                    label={room.type === 'PRIVATE' ? 'Privé' : 'Public'}
+                    size="small"
+                    color={room.type === 'PRIVATE' ? 'error' : 'primary'}
+                    variant="outlined"
+                  />
+                  
+                  <Typography variant="caption" color="text.secondary">
+                    {dayjs(room.createdAt).fromNow()}
+                  </Typography>
+                  
+                  <Box display="flex" gap={0.5}>
+                    <IconButton size="small" onClick={() => handleJoinRoom(room.id)}>
+                      <VisibilityIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton size="small" onClick={() => handleOpenDialog(room)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton size="small" onClick={() => handleDeleteClick(room)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </Box>
+              </Box>
+            </Paper>
+          ))}
+        </Box>
       )}
 
       {/* Dialog création/édition */}
@@ -467,19 +1019,26 @@ const ChatRoomsPage: React.FC = () => {
         onClose={() => !dialogLoading && setDialogOpen(false)}
         maxWidth="sm"
         fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
       >
-        <DialogTitle>
-          {editingRoom ? 'Modifier le salon' : 'Créer un nouveau salon'}
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography variant="h5" fontWeight="bold">
+            {editingRoom ? 'Modifier le salon' : 'Nouveau salon'}
+          </Typography>
         </DialogTitle>
+        
         <DialogContent>
-          <Box sx={{ pt: 2 }}>
+          <Box sx={{ pt: 1 }}>
             <TextField
               fullWidth
               label="Nom du salon"
               value={roomForm.name}
               onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })}
               required
-              sx={{ mb: 2 }}
+              sx={{ mb: 3 }}
+              InputProps={{ sx: { borderRadius: 2 } }}
             />
             
             <TextField
@@ -489,29 +1048,54 @@ const ChatRoomsPage: React.FC = () => {
               onChange={(e) => setRoomForm({ ...roomForm, description: e.target.value })}
               multiline
               rows={3}
-              sx={{ mb: 2 }}
+              sx={{ mb: 3 }}
+              InputProps={{ sx: { borderRadius: 2 } }}
+              helperText="Optionnel - Décrivez le sujet ou le but de ce salon"
             />
             
-            <FormControl fullWidth sx={{ mb: 2 }}>
+            <FormControl fullWidth sx={{ mb: 1 }}>
               <InputLabel>Type de salon</InputLabel>
               <Select
                 value={roomForm.type}
                 label="Type de salon"
                 onChange={(e) => setRoomForm({ 
                   ...roomForm, 
-                  type: e.target.value as 'PRIVATE' | 'GROUP' 
+                  type: e.target.value as 'PRIVATE' | 'GROUP' | 'PUBLIC'
                 })}
+                sx={{ borderRadius: 2 }}
               >
-                <MenuItem value="GROUP">Public (Groupe)</MenuItem>
-                <MenuItem value="PRIVATE">Privé</MenuItem>
+                <MenuItem value="PUBLIC">
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <PublicIcon fontSize="small" />
+                    <Box>
+                      <Typography>Public</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Accessible à tous les utilisateurs
+                      </Typography>
+                    </Box>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="PRIVATE">
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <LockIcon fontSize="small" />
+                    <Box>
+                      <Typography>Privé</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Accès limité aux membres invités
+                      </Typography>
+                    </Box>
+                  </Box>
+                </MenuItem>
               </Select>
             </FormControl>
           </Box>
         </DialogContent>
-        {/* <DialogActions>
+        
+        <DialogActions sx={{ p: 3, pt: 1 }}>
           <Button
             onClick={() => setDialogOpen(false)}
             disabled={dialogLoading}
+            sx={{ borderRadius: 2 }}
           >
             Annuler
           </Button>
@@ -519,31 +1103,75 @@ const ChatRoomsPage: React.FC = () => {
             onClick={handleSaveRoom}
             variant="contained"
             disabled={dialogLoading || !roomForm.name.trim()}
+            sx={{ borderRadius: 2 }}
           >
-            {dialogLoading ? <CircularProgress size={24} /> : 'Enregistrer'}
+            {dialogLoading ? (
+              <CircularProgress size={24} />
+            ) : editingRoom ? (
+              'Mettre à jour'
+            ) : (
+              'Créer le salon'
+            )}
           </Button>
-        </DialogActions> */}
+        </DialogActions>
       </Dialog>
 
       {/* Dialog de suppression */}
       <Dialog
         open={deleteDialogOpen}
         onClose={() => !deleteLoading && setDeleteDialogOpen(false)}
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
       >
-        <DialogTitle>Confirmer la suppression</DialogTitle>
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <WarningIcon color="error" />
+            <Typography variant="h6" fontWeight="bold">
+              Confirmer la suppression
+            </Typography>
+          </Box>
+        </DialogTitle>
+        
         <DialogContent>
-          <Typography>
+          <Typography paragraph>
             Êtes-vous sûr de vouloir supprimer le salon{' '}
-            <strong>{roomToDelete?.name}</strong> ?
+            <strong>"{roomToDelete?.name}"</strong> ?
           </Typography>
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            Cette action est irréversible. Tous les messages de ce salon seront également supprimés.
+          
+          <Alert 
+            severity="warning" 
+            icon={<InfoIcon />}
+            sx={{ 
+              mt: 2,
+              borderRadius: 2,
+            }}
+          >
+            <Typography variant="body2">
+              Cette action est irréversible. Tous les messages, participants et données associées à ce salon seront définitivement supprimés.
+            </Typography>
           </Alert>
+          
+          {roomToDelete && roomToDelete.participantCount > 0 && (
+            <Alert 
+              severity="info"
+              sx={{ 
+                mt: 2,
+                borderRadius: 2,
+              }}
+            >
+              <Typography variant="body2">
+                Ce salon contient actuellement {roomToDelete.participantCount} participant(s).
+              </Typography>
+            </Alert>
+          )}
         </DialogContent>
-        {/* <DialogActions>
+        
+        <DialogActions sx={{ p: 3, pt: 1 }}>
           <Button
             onClick={() => setDeleteDialogOpen(false)}
             disabled={deleteLoading}
+            sx={{ borderRadius: 2 }}
           >
             Annuler
           </Button>
@@ -552,10 +1180,15 @@ const ChatRoomsPage: React.FC = () => {
             color="error"
             variant="contained"
             disabled={deleteLoading}
+            sx={{ borderRadius: 2 }}
           >
-            {deleteLoading ? <CircularProgress size={24} /> : 'Supprimer'}
+            {deleteLoading ? (
+              <CircularProgress size={24} />
+            ) : (
+              'Supprimer définitivement'
+            )}
           </Button>
-        </DialogActions> */}
+        </DialogActions>
       </Dialog>
     </Container>
   );

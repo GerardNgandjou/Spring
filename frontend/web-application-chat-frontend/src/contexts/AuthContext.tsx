@@ -1,8 +1,9 @@
-// contexts/AuthContext.tsx - VERSION COMPLÈTE ET FONCTIONNELLE
+// src/contexts/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { authApi } from '../services/api/auth';
-import api from '../services/api/api';
 
+// Types
 interface User {
   id: number;
   email: string;
@@ -11,13 +12,23 @@ interface User {
   createdAt: string;
 }
 
+interface AuthResponse {
+  user: User;
+  token: string;
+  tokenType: string;
+  expiresIn: number;
+  sessionId: string;
+}
+
 interface AuthContextType {
   user: User | null;
-  loading: boolean;
-  login: (token: string, userData: User) => Promise<void>;
-  logout: () => Promise<void>;
-  isAdmin: boolean;
-  updateUser: (userData: User) => void;
+  token: string | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+  register: (email: string, password: string) => Promise<void>;
+  checkEmailAvailability: (email: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,106 +46,112 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(() => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+  
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
-  // Initialiser l'authentification
+  // Initialiser l'authentification au chargement
   useEffect(() => {
-    const initializeAuth = async () => {
-      const token = localStorage.getItem('token');
-      const userData = localStorage.getItem('user');
-      
-      if (token && userData) {
+    const initAuth = async () => {
+      const storedToken = localStorage.getItem('token');
+      if (storedToken) {
         try {
-          // Vérifier si le token est valide
-          const response = await authApi.getCurrentUser();
-          
-          if (response.data.success) {
-            // Token valide, mettre à jour l'utilisateur
-            const freshUserData = response.data.data;
-            setUser(freshUserData);
-            
-            // Mettre à jour le localStorage avec les données fraîches
-            localStorage.setItem('user', JSON.stringify(freshUserData));
-            
-            console.log('User authenticated from localStorage:', freshUserData.email);
-          } else {
-            // Token invalide, nettoyer
-            console.log('Invalid token, clearing storage');
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
+          // Vérifier si le token est toujours valide
+          const response = await authApi.validateToken(storedToken);
+          if (!response.data.data.isValid) {
+            clearAuth();
           }
         } catch (error) {
-          console.error('Auth initialization error:', error);
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
+          console.error('Token validation failed:', error);
+          clearAuth();
         }
       }
-      
-      setLoading(false);
     };
-
-    initializeAuth();
+    
+    initAuth();
   }, []);
 
-  // Fonction de connexion
-  const login = async (token: string, userData: User): Promise<void> => {
-    return new Promise((resolve) => {
-      // Stocker dans localStorage
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      
-      // Configurer l'interceptor axios
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
-      // Mettre à jour l'état
-      setUser(userData);
-      
-      console.log('Login successful:', userData.email);
-      resolve();
-    });
+  const clearAuth = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
   };
 
-  // Fonction de déconnexion
-  const logout = async (): Promise<void> => {
-    return new Promise((resolve) => {
-      try {
-        // Appeler l'API logout
-        authApi.logout();
-      } catch (error) {
-        console.error('Logout API error:', error);
+  const login = async (email: string, password: string): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const response = await authApi.login(email, password);
+      
+      if (response.data.success) {
+        const authData: AuthResponse = response.data.data;
+        
+        // Stocker les données
+        localStorage.setItem('token', authData.token);
+        localStorage.setItem('user', JSON.stringify(authData.user));
+        
+        // Mettre à jour l'état
+        setToken(authData.token);
+        setUser(authData.user);
+        
+        // Rediriger vers la page demandée ou chat
+        navigate('/chat');
+      } else {
+        throw new Error(response.data.message);
       }
-      
-      // Nettoyer localStorage
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      
-      // Nettoyer les headers axios
-      delete api.defaults.headers.common['Authorization'];
-      
-      // Mettre à jour l'état
-      setUser(null);
-      
-      console.log('Logout successful');
-      resolve();
-    });
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Login failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Mettre à jour l'utilisateur
-  const updateUser = (userData: User) => {
-    setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
+  const logout = (): void => {
+    clearAuth();
+    navigate('/login');
   };
 
-  const isAdmin = user?.role === 'ADMIN';
+  const register = async (email: string, password: string): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const response = await authApi.register(email, password);
+      
+      if (response.data.success) {
+        // Auto-login après inscription
+        await login(email, password);
+      } else {
+        throw new Error(response.data.message);
+      }
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Registration failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const value = {
+  const checkEmailAvailability = async (email: string): Promise<boolean> => {
+    try {
+      const response = await authApi.checkEmail(email);
+      return response.data.data.available;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const value: AuthContextType = {
     user,
-    loading,
+    token,
+    isAuthenticated: !!user && !!token,
+    isLoading,
     login,
     logout,
-    isAdmin,
-    updateUser,
+    register,
+    checkEmailAvailability,
   };
 
   return (

@@ -54,7 +54,16 @@ logging:
     org.springframework.web.socket: DEBUG
     org.springframework.messaging: DEBUG
     org.springframework.security: DEBUG
-
+    org:
+      springframework:
+        web:
+          socket:
+            handler: DEBUG
+            socktjs: DEBUG
+          messaging:
+#            simp: DEBUG
+            simp:
+              stomp: DEBUG
 
 # JWT Configuration
 # Secret key should be at least 32 characters for HS512

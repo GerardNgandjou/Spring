@@ -1,134 +1,154 @@
+// src/store/chatStore.ts
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
-import type { ChatRoomResponse } from '../types/chat.types';
-import type { MessageResponse } from '../types/message.type';
-import type { UserResponse } from '../types/user.types';
+import type { ChatRoomResponse, MessageResponse } from '../types';
 
 interface ChatState {
-  // État
+  // ==================== État ====================
   rooms: ChatRoomResponse[];
-  selectedRoom: ChatRoomResponse | null;
+  selectedRoomId: number | null;
   messages: MessageResponse[];
-  onlineUsers: UserResponse[];
   unreadCounts: Record<number, number>;
-  
-  // Actions
+  isLoadingRooms: boolean;
+  isLoadingMessages: boolean;
+
+  // ==================== Actions: Rooms ====================
   setRooms: (rooms: ChatRoomResponse[]) => void;
   addRoom: (room: ChatRoomResponse) => void;
   updateRoom: (roomId: number, updates: Partial<ChatRoomResponse>) => void;
   deleteRoom: (roomId: number) => void;
-  
-  setSelectedRoom: (room: ChatRoomResponse | null) => void;
-  
+
+  // ==================== Actions: Selected Room ====================
+  selectRoom: (roomId: number | null) => void;
+  getSelectedRoom: () => ChatRoomResponse | undefined;
+
+  // ==================== Actions: Messages ====================
   setMessages: (messages: MessageResponse[]) => void;
   addMessage: (message: MessageResponse) => void;
   updateMessage: (messageId: number, updates: Partial<MessageResponse>) => void;
   deleteMessage: (messageId: number) => void;
-  
-  setOnlineUsers: (users: UserResponse[]) => void;
-  addOnlineUser: (user: UserResponse) => void;
-  removeOnlineUser: (userId: number) => void;
-  
+  clearMessages: () => void;
+
+  // ==================== Actions: Unread Counts ====================
   incrementUnreadCount: (roomId: number) => void;
   resetUnreadCount: (roomId: number) => void;
-  
-  // Utilitaires
   getUnreadCount: (roomId: number) => number;
   getTotalUnreadCount: () => number;
+
+  // ==================== Actions: Loading ====================
+  setLoadingRooms: (loading: boolean) => void;
+  setLoadingMessages: (loading: boolean) => void;
 }
 
 export const useChatStore = create<ChatState>()(
   devtools(
     persist(
       (set, get) => ({
-        // État initial
+        // ==================== État Initial ====================
         rooms: [],
-        selectedRoom: null,
+        selectedRoomId: null,
         messages: [],
-        onlineUsers: [],
         unreadCounts: {},
-        
-        // Actions
+        isLoadingRooms: false,
+        isLoadingMessages: false,
+
+        // ==================== Rooms ====================
         setRooms: (rooms) => set({ rooms }),
-        
+
         addRoom: (room) =>
           set((state) => ({
             rooms: [...state.rooms, room],
           })),
-        
+
         updateRoom: (roomId, updates) =>
           set((state) => ({
             rooms: state.rooms.map((room) =>
               room.id === roomId ? { ...room, ...updates } : room
             ),
           })),
-        
+
         deleteRoom: (roomId) =>
-          set((state) => ({
-            rooms: state.rooms.filter((room) => room.id !== roomId),
-            selectedRoom: state.selectedRoom?.id === roomId ? null : state.selectedRoom,
-          })),
-        
-        setSelectedRoom: (room) => {
-          if (room) {
-            // Réinitialiser le compteur de messages non lus quand on sélectionne un salon
-            set((state) => ({
-              selectedRoom: room,
+          set((state) => {
+            const wasSelected = state.selectedRoomId === roomId;
+            return {
+              rooms: state.rooms.filter((room) => room.id !== roomId),
+              selectedRoomId: wasSelected ? null : state.selectedRoomId,
               unreadCounts: {
                 ...state.unreadCounts,
-                [room.id]: 0,
+                [roomId]: 0,
               },
-            }));
-          } else {
-            set({ selectedRoom: null });
-          }
-        },
-        
-        setMessages: (messages) => set({ messages }),
-        
-        addMessage: (message) =>
+            };
+          }),
+
+        // ==================== Selected Room ====================
+        selectRoom: (roomId) =>
           set((state) => {
-            // Si le message n'est pas dans le salon actuel, incrémenter le compteur de non lus
-            if (state.selectedRoom?.id !== message.chatRoomId) {
+            // Reset unread count when selecting a room
+            if (roomId !== null) {
               return {
-                messages: [...state.messages, message],
+                selectedRoomId: roomId,
                 unreadCounts: {
                   ...state.unreadCounts,
-                  [message.chatRoomId]: (state.unreadCounts[message.chatRoomId] || 0) + 1,
+                  [roomId]: 0,
                 },
               };
             }
-            return {
+            return { selectedRoomId: null };
+          }),
+
+        getSelectedRoom: () => {
+          const state = get();
+          if (!state.selectedRoomId) return undefined;
+          return state.rooms.find((room) => room.id === state.selectedRoomId);
+        },
+
+        // ==================== Messages ====================
+        setMessages: (messages) => set({ messages }),
+
+        addMessage: (message) =>
+          set((state) => {
+            // Avoid duplicates
+            if (state.messages.some((m) => m.id === message.id)) {
+              return state;
+            }
+
+            // Increment unread count if message is not from current room
+            const updates: Partial<ChatState> = {
               messages: [...state.messages, message],
             };
+
+            if (state.selectedRoomId !== message.chatRoomId) {
+              updates.unreadCounts = {
+                ...state.unreadCounts,
+                [message.chatRoomId]:
+                  (state.unreadCounts[message.chatRoomId] || 0) + 1,
+              };
+            }
+
+            return updates;
           }),
-        
+
         updateMessage: (messageId, updates) =>
           set((state) => ({
             messages: state.messages.map((message) =>
-              message.id === messageId ? { ...message, ...updates } : message
+              message.id === messageId
+                ? { ...message, ...updates }
+                : message
             ),
           })),
-        
+
         deleteMessage: (messageId) =>
           set((state) => ({
             messages: state.messages.map((message) =>
-              message.id === messageId ? { ...message, isDeleted: true } : message
+              message.id === messageId
+                ? { ...message, isDeleted: true }
+                : message
             ),
           })),
-        
-        setOnlineUsers: (users) => set({ onlineUsers: users }),
-        
-        addOnlineUser: (user) =>
-          set((state) => ({
-            onlineUsers: [...state.onlineUsers, user],
-          })),
-        
-        removeOnlineUser: (userId) =>
-          set((state) => ({
-            onlineUsers: state.onlineUsers.filter((user) => user.id !== userId),
-          })),
-        
+
+        clearMessages: () => set({ messages: [] }),
+
+        // ==================== Unread Counts ====================
         incrementUnreadCount: (roomId) =>
           set((state) => ({
             unreadCounts: {
@@ -136,7 +156,7 @@ export const useChatStore = create<ChatState>()(
               [roomId]: (state.unreadCounts[roomId] || 0) + 1,
             },
           })),
-        
+
         resetUnreadCount: (roomId) =>
           set((state) => ({
             unreadCounts: {
@@ -144,18 +164,24 @@ export const useChatStore = create<ChatState>()(
               [roomId]: 0,
             },
           })),
-        
-        // Utilitaires
+
         getUnreadCount: (roomId) => {
           return get().unreadCounts[roomId] || 0;
         },
-        
+
         getTotalUnreadCount: () => {
-          return Object.values(get().unreadCounts).reduce((sum, count) => sum + count, 0);
+          const counts = Object.values(get().unreadCounts);
+          return counts.reduce((sum, count) => sum + count, 0);
         },
+
+        // ==================== Loading ====================
+        setLoadingRooms: (loading) => set({ isLoadingRooms: loading }),
+
+        setLoadingMessages: (loading) => set({ isLoadingMessages: loading }),
       }),
       {
-        name: 'chat-storage',
+        name: 'chat-store',
+        // Persist only these fields
         partialize: (state) => ({
           rooms: state.rooms,
           unreadCounts: state.unreadCounts,

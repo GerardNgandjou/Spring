@@ -1,81 +1,203 @@
-import { useState, useCallback } from 'react';
-import { chatApi } from '../services/api/chat';
-import { toast } from 'react-hot-toast';
-import { messageApi } from '../services/api/message';
-import type { ChatRoomResponse } from '../types';
-import type { MessageResponse } from '../types/message.type';
+// src/hooks/useChat.ts
+import { useEffect, useRef, useCallback } from 'react';
+import { useChatStore } from '../store/chatStore';
+import toast from 'react-hot-toast';
+import { chatWebSocket } from '../services/chatWebsocket';
 
-export const useChat = () => {
-  const [rooms, setRooms] = useState<ChatRoomResponse[]>([]);
-  const [selectedRoom, setSelectedRoom] = useState<ChatRoomResponse | null>(null);
-  const [messages, setMessages] = useState<MessageResponse[]>([]);
-  const [loading, setLoading] = useState({
-    rooms: false,
-    messages: false,
-  });
+export interface UseChatOptions {
+  userId: number;
+  token: string;
+  onError?: (error: string) => void;
+  onConnect?: () => void;
+  onDisconnect?: () => void;
+}
 
-  // Charger les salons
-  const loadRooms = useCallback(async () => {
-    setLoading(prev => ({ ...prev, rooms: true }));
-    try {
-      const data = await chatApi.getRooms();
-      setRooms(data);
-      return data;
-    } catch (error) {
-      console.error('Error loading rooms:', error);
-      toast.error('Erreur lors du chargement des salons');
-      throw error;
-    } finally {
-      setLoading(prev => ({ ...prev, rooms: false }));
+export const useChat = ({
+  userId,
+  token,
+  onError,
+  onConnect,
+  onDisconnect,
+}: UseChatOptions) => {
+  const isMounted = useRef(true);
+
+  // Get Zustand store
+  const {
+    rooms,
+    selectedRoomId,
+    messages,
+    addMessage,
+    selectRoom,
+    setLoadingMessages,
+    resetUnreadCount,
+  } = useChatStore();
+
+  // ==================== Initialisation ====================
+  useEffect(() => {
+    if (!token || !userId) {
+      console.error('❌ Missing token or userId for chat');
+      return;
     }
-  }, []);
 
-  // Charger les messages
-  const loadMessages = useCallback(async (roomId: number) => {
-    if (!roomId) return;
-    
-    setLoading(prev => ({ ...prev, messages: true }));
-    try {
-      const data = await messageApi.getOrderedMessages(roomId);
-      setMessages(data);
-      return data;
-    } catch (error) {
-      console.error('Error loading messages:', error);
-      toast.error('Erreur lors du chargement des messages');
-      throw error;
-    } finally {
-      setLoading(prev => ({ ...prev, messages: false }));
-    }
-  }, []);
+    console.log('🔌 Initializing chat connection...');
 
-  // Créer un salon
-  const createRoom = useCallback(async (name: string, type: 'PRIVATE' | 'GROUP' = 'GROUP') => {
-    try {
-      const newRoom = await chatApi.createRoom({
-        name,
-        type,
+    // Gestionnaires d'événements
+    const handleConnect = () => {
+      if (!isMounted.current) return;
+      console.log('✅ Chat connected');
+      onConnect?.();
+
+      // Rejoindre les rooms
+      rooms.forEach((room) => {
+        chatWebSocket.joinRoom(room.id);
       });
-      
-      setRooms(prev => [...prev, newRoom]);
-      toast.success('Salon créé avec succès');
-      return newRoom;
-    } catch (error) {
-      console.error('Error creating room:', error);
-      toast.error('Erreur lors de la création du salon');
-      throw error;
-    }
-  }, []);
+    };
+
+    const handleDisconnect = () => {
+      if (!isMounted.current) return;
+      console.log('❌ Chat disconnected');
+      onDisconnect?.();
+    };
+
+    const handleError = (error: string) => {
+      if (!isMounted.current) return;
+      console.error('WebSocket error:', error);
+      onError?.(error);
+      toast.error(`Erreur: ${error}`);
+    };
+
+    const handleMessageConfirmation = (confirmation: any) => {
+      console.log('✅ Message confirmation:', confirmation);
+      // Les confirmations sont gérées dans le composant parent
+    };
+
+    // S'abonner aux événements
+    const unsubConnect = chatWebSocket.onConnect(handleConnect);
+    const unsubDisconnect = chatWebSocket.onDisconnect(handleDisconnect);
+    const unsubError = chatWebSocket.onError(handleError);
+    const unsubConfirmation = chatWebSocket.onMessageConfirmation(
+      handleMessageConfirmation
+    );
+
+    // Connecter
+    chatWebSocket.connect(token, userId);
+
+    // Cleanup
+    return () => {
+      console.log('🧹 Cleaning up chat connection...');
+      unsubConnect();
+      unsubDisconnect();
+      unsubError();
+      unsubConfirmation();
+    };
+  }, [token, userId, rooms, onConnect, onDisconnect, onError]);
+
+  // ==================== Sélectionner une Room ====================
+  const joinRoom = useCallback(
+    async (roomId: number) => {
+      console.log(`🚪 Joining room ${roomId}...`);
+
+      selectRoom(roomId);
+      resetUnreadCount(roomId);
+      setLoadingMessages(true);
+
+      try {
+        // Charger les messages existants depuis l'API REST
+        // (À adapter selon ton API)
+        // const messagesResponse = await chatApi.getMessagesByRoom(roomId);
+        // setMessages(messagesResponse.data);
+
+        // S'abonner au WebSocket
+        chatWebSocket.joinRoom(roomId);
+
+        // S'abonner aux nouveaux messages
+        const unsubscribe = chatWebSocket.onRoomMessage(roomId, (message) => {
+          console.log(`📨 New message in room ${roomId}:`, message.id);
+          addMessage(message);
+        });
+
+        // Cleanup: se désabonner quand on quitte le composant
+        return () => {
+          console.log(`👋 Leaving room ${roomId}...`);
+          chatWebSocket.leaveRoom(roomId);
+          unsubscribe();
+        };
+      } catch (error) {
+        console.error('❌ Error joining room:', error);
+        onError?.(`Error joining room: ${error}`);
+        toast.error('Erreur lors de l\'accès à la salle');
+      } finally {
+        setLoadingMessages(false);
+      }
+    },
+    [selectRoom, resetUnreadCount, setLoadingMessages, addMessage, onError]
+  );
+
+  // ==================== Envoyer un Message ====================
+  const sendMessage = useCallback(
+    async (content: string) => {
+      if (!selectedRoomId) {
+        console.error('❌ No room selected');
+        toast.error('Aucune salle sélectionnée');
+        return false;
+      }
+
+      if (!content.trim()) {
+        console.warn('⚠️ Empty message');
+        return false;
+      }
+
+      console.log(`✉️ Sending message to room ${selectedRoomId}...`);
+
+      try {
+        const success = await chatWebSocket.sendMessage(selectedRoomId, content);
+
+        if (!success) {
+          console.error('❌ Failed to send message');
+          toast.error('Erreur lors de l\'envoi du message');
+          return false;
+        }
+
+        console.log('✅ Message sent successfully');
+        return true;
+      } catch (error) {
+        console.error('❌ Error sending message:', error);
+        onError?.(`Error sending message: ${error}`);
+        toast.error('Erreur lors de l\'envoi du message');
+        return false;
+      }
+    },
+    [selectedRoomId, onError]
+  );
+
+  // ==================== Typing Notification ====================
+  const sendTypingNotification = useCallback(
+    (isTyping: boolean) => {
+      if (!selectedRoomId) return;
+
+      console.log(
+        `⌨️ Sending typing notification for room ${selectedRoomId}: ${isTyping}`
+      );
+      chatWebSocket.sendTypingNotification(selectedRoomId, isTyping);
+    },
+    [selectedRoomId]
+  );
+
+  // ==================== État de Connexion ====================
+  const isConnected = chatWebSocket.isConnectionActive();
+  const isConnecting = chatWebSocket.isConnecting();
 
   return {
+    // État
     rooms,
-    selectedRoom,
+    selectedRoomId,
     messages,
-    loading,
-    setRooms,
-    setSelectedRoom,
-    setMessages,
-    loadRooms,
-    loadMessages,
-    createRoom,
+    isConnected,
+    isConnecting,
+
+    // Actions
+    joinRoom,
+    sendMessage,
+    sendTypingNotification,
   };
 };

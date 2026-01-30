@@ -1,35 +1,37 @@
-// components/ProtectedRoute.tsx - Version simple
+// src/components/ProtectedRoute.tsx
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { CircularProgress, Box } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
+
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  adminOnly?: boolean;
+  requiredRole?: 'USER' | 'ADMIN';
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, adminOnly = false }) => {
-  const { user, loading, isAdmin } = useAuth();
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
+  children, 
+  requiredRole 
+}) => {
+  const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <CircularProgress />
-      </Box>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
     );
   }
 
-  // Check if user is logged in
-  const token = localStorage.getItem('token');
-  if (!token || !user) {
+  if (!isAuthenticated) {
+    // Rediriger vers login en sauvegardant l'URL d'origine
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Check admin permission
-  if (adminOnly && !isAdmin) {
-    return <Navigate to="/chat" replace />;
+  // Vérifier les rôles si nécessaire
+  if (requiredRole && user?.role !== requiredRole && user?.role !== 'ADMIN') {
+    return <Navigate to="/unauthorized" replace />;
   }
 
   return <>{children}</>;

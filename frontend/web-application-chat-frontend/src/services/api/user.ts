@@ -1,9 +1,9 @@
-// services/api/user.ts
+// src/services/api/user.ts
 import api from './api';
 
 export const userApi = {
   // Récupérer tous les utilisateurs (Admin seulement)
-  getAllUsers: () => api.get('/api/users'),
+  getAllUsers: () => api.get('/api/users/'),
   
   // Récupérer un utilisateur par ID
   getUserById: (id: number) => api.get(`/api/users/${id}`),
@@ -21,4 +21,9 @@ export const userApi = {
   // Récupérer les utilisateurs par plage de dates
   getUsersByDateRange: (startDate: string, endDate: string) =>
     api.get(`/api/users/date-range?startDate=${startDate}&endDate=${endDate}`),
+  
+  // Mettre à jour le statut actif d'un utilisateur
+  updateUserStatus: async (userId: number, isActive: boolean) => {
+    return api.patch(`/users/${userId}/status`, { isActive });
+  },
 };

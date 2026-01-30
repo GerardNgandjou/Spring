@@ -47,32 +47,37 @@ class SecurityConfig(
                         response.contentType = "application/json"
                         response.status = HttpStatus.UNAUTHORIZED.value()
                         response.writer.write("""
-                            {
-                                "success": false,
-                                "message": "Unauthorized: ${authException.message}",
-                                "timestamp": ${System.currentTimeMillis()}
-                            }
-                        """.trimIndent())
+                        {
+                            "success": false,
+                            "message": "Unauthorized: ${authException.message}",
+                            "timestamp": ${System.currentTimeMillis()}
+                        }
+                    """.trimIndent())
                     }
                     .accessDeniedHandler { request, response, accessDeniedException ->
                         response.contentType = "application/json"
                         response.status = HttpStatus.FORBIDDEN.value()
                         response.writer.write("""
-                            {
-                                "success": false,
-                                "message": "Access Denied: ${accessDeniedException.message}",
-                                "timestamp": ${System.currentTimeMillis()}
-                            }
-                        """.trimIndent())
+                        {
+                            "success": false,
+                            "message": "Access Denied: ${accessDeniedException.message}",
+                            "timestamp": ${System.currentTimeMillis()}
+                        }
+                    """.trimIndent())
                     }
             }
-            .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
+            .sessionManagement {
+                // IMPORTANT: Si vous utilisez JWT, passez en STATELESS
+                it.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            }
             .authorizeHttpRequests { authz ->
                 authz
-                    // Public endpoints - no authentication required
-                    .requestMatchers("/", "/favicon.ico", "/resources/**", "/static/**", "/public/**").permitAll()
+                    // Routes publiques
+                    .requestMatchers("/", "/login", "/register", "/favicon.ico").permitAll()
+                    .requestMatchers("/resources/**", "/static/**", "/public/**", "/css/**", "/js/**").permitAll()
+                    .requestMatchers("/error").permitAll()
 
-                    // Swagger/OpenAPI documentation endpoints
+                    // Documentation API
                     .requestMatchers(
                         "/swagger-ui.html",
                         "/swagger-ui/**",
@@ -82,7 +87,7 @@ class SecurityConfig(
                         "/webjars/**"
                     ).permitAll()
 
-                    // Authentication endpoints
+                    // API Authentication - publiques
                     .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/auth/check-email").permitAll()
@@ -122,10 +127,7 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.PUT, "/api/messages/**").authenticated()
                     .requestMatchers(HttpMethod.DELETE, "/api/messages/**").authenticated()
 
-                    // WebSockets endpoints
-                    .requestMatchers("/ws/**").permitAll()   // ✅ VERY IMPORTANT
-
-                    // All other requests require authentication
+                    // Toutes les autres routes nécessitent une authentification
                     .anyRequest().authenticated()
             }
             .addFilterBefore(
@@ -160,13 +162,28 @@ class SecurityConfig(
     @Bean
     fun corsConfigurationSource(): CorsConfigurationSource {
         val corsConfig = CorsConfiguration().apply {
-            allowedOrigins = listOf("*")
-            allowedOrigins = listOf("http://localhost:3000", "http://localhost:5173", "http://localhost:8081")
+            allowedOrigins = listOf(
+                "http://localhost:3000",  // React dev server
+                "http://localhost:5173",  // Vite dev server
+                "http://localhost:8080"   // Spring Boot
+            )
             allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
-            allowedHeaders = listOf("*")
-            exposedHeaders = listOf("Authorization", "Content-Type")
+            allowedHeaders = listOf(
+                "Authorization",
+                "Content-Type",
+                "X-Requested-With",
+                "Accept",
+                "Origin",
+                "Access-Control-Request-Method",
+                "Access-Control-Request-Headers"
+            )
+            exposedHeaders = listOf(
+                "Authorization",
+                "Content-Type",
+                "X-Session-Id"
+            )
             maxAge = 3600L
-            allowCredentials = false
+            allowCredentials = true  // Important pour les cookies/sessions
         }
 
         val source = UrlBasedCorsConfigurationSource()

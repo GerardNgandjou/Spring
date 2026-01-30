@@ -84,7 +84,7 @@ class JwtAuthenticationFilter (
         return if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
             bearerToken.substring(7)
         } else {
-            ""
+            null
         }
     }
 }
