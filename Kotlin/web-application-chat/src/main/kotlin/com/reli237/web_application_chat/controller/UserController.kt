@@ -57,17 +57,6 @@ class UsersController(
                     ))
             }
 
-            // Check if user has ADMIN role
-//            val userRole = jwtProvider.getRoleFromToken(token)
-//            if (userRole != UserRole.ADMIN.name) {
-//                return ResponseEntity.status(HttpStatus.FORBIDDEN)
-//                    .body(ApiResponse(
-//                        success = false,
-//                        message = "Insufficient permissions. ADMIN role required.",
-//                        data = null
-//                    ))
-//            }
-
             // Fetch all users
             val users = usersService.getAllUsers()
             ResponseEntity.ok()
@@ -478,6 +467,21 @@ class UsersController(
                     data = null
                 ))
         }
+    }
+
+    @GetMapping("/except/{currentUserId}")
+    fun getAllUsersExceptCurrentUser(@PathVariable currentUserId: Long): ResponseEntity<List<UserDto.PrivateUserResponse>?> {
+        val users = usersService.getAllUsersExceptCurrentUser(currentUserId)
+        return ResponseEntity.ok(users)
+    }
+
+    @GetMapping("/search/{currentUserId}")
+    fun searchUsers(
+        @PathVariable currentUserId: Long,
+        @RequestParam query: String
+    ): ResponseEntity<List<UserDto.PrivateUserResponse>?> {
+        val users = usersService.searchUsers(currentUserId, query)
+        return ResponseEntity.ok(users)
     }
 
     /**

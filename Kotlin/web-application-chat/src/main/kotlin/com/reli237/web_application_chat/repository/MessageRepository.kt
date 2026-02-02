@@ -26,4 +26,5 @@ interface MessageRepository: JpaRepository<Message, Long> {
 
     fun findByMessageType(messageType: MessageType): List<Message>
 
+    fun findByChatRoomIdAndIsDeletedFalseOrderByTimeStampAsc(chatRoomId: Long): List<Message>
 }

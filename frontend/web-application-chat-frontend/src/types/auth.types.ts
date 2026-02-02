@@ -29,3 +29,13 @@ export interface ApiResponse<T> {
   data: T | null;
   timestamp: number;
 }
+
+// src/types/index.ts
+export interface UserType {
+  id: number;
+  email: string;
+  username?: string;
+  role?: string;
+  isActive?: boolean;
+  createdAt?: string;
+}

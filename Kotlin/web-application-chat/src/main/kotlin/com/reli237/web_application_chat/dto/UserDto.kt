@@ -46,4 +46,16 @@ class UserDto {
         val chatParticipants: List<ChatParticipant> = emptyList()
     )
 
+    data class PrivateUserResponse(
+        val id: Long,
+        val email: String,
+        val isActive: Boolean,
+        val role: String
+    )
+
+    data class SearchRequest(
+        val query: String
+    )
+
+
 }

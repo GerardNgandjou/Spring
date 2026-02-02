@@ -23,7 +23,10 @@ class WebSocketConfig(
         // Préfixe pour les messages envoyés PAR le serveur aux clients
         // /topic = messages publics (broadcast)
         // /queue = messages privés (dirigés vers un utilisateur spécifique)
-        config.enableSimpleBroker("/topic", "/queue")
+        config.enableSimpleBroker(
+            "/topic",
+            "/queue"
+        )
 
         // Préfixe pour les messages privés dirigés vers un utilisateur
         config.setUserDestinationPrefix("/user")

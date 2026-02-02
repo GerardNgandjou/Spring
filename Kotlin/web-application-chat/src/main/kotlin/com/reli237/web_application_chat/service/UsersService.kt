@@ -166,6 +166,37 @@ class UsersService(
             .map { mapToUserResponse(it) }
     }
 
+    fun getAllUsersExceptCurrentUser(
+        currentUserId: Long
+    ): List<UserDto.PrivateUserResponse> {
+
+        return usersRepository.findAllExceptCurrentUser(currentUserId)
+            .map { user ->
+                UserDto.PrivateUserResponse(
+                    id = user.id,
+                    email = user.email,
+                    isActive = user.isActive,
+                    role = user.role.name // ✅
+                )
+            }
+    }
+
+    fun searchUsers(
+        currentUserId: Long,
+        query: String
+    ): List<UserDto.PrivateUserResponse> {
+
+        return usersRepository.searchUsersExceptCurrentUser(currentUserId, query)
+            .map { user ->
+                UserDto.PrivateUserResponse(
+                    id = user.id,
+                    email = user.email,
+                    isActive = user.isActive,
+                    role = user.role.name // ✅ enum → String
+                )
+            }
+    }
+
     /**
      * Map Users entity to UserResponse DTO
      */
@@ -204,5 +235,16 @@ class UsersService(
         // Adjust based on your actual ChatParticipant entity and DTO structure
         return chatParticipant
     }
+
+    data class PrivateUserResponse(
+        val id: Long,
+        val email: String,
+        val isActive: Boolean,
+        val role: String
+    )
+
+    data class SearchRequest(
+        val query: String
+    )
 
 }

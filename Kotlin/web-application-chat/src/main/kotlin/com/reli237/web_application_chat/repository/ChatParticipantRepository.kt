@@ -27,4 +27,5 @@ interface ChatParticipantRepository: JpaRepository<ChatParticipant, Long> {
 
     fun deleteByUserIdAndChatRoomId(userId: Long, chatRoomId: Long)
 
+    fun existsByChatRoomIdAndUserId(chatRoomId: Long, userId: Long): Boolean
 }

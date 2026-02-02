@@ -102,7 +102,6 @@ class MessageService(
             .map { mapToMessageResponse(it) }
     }
 
-
     /**
      * Get all messages sent by a specific user
      */
@@ -268,60 +267,6 @@ class MessageService(
         return chatRoom
     }
 
-    /**
-     * Get list of users currently typing in a room
-     */
-//    fun getTypingUsersInRoom(roomId: Long): List<MessageDto.TypingUser> {
-//        val userIds = typingUsers[roomId] ?: return emptyList()
-//        return userIds.map { userId ->
-//            MessageDto.TypingUser(
-//                userId = userId,
-//                username = "User_$userId", // Replace it with actual username lookup
-//                startedAt = System.currentTimeMillis()
-//            )
-//        }
-//    }
-//
-//    /**
-//     * Get read status for a message
-//     */
-//    fun getMessageReadStatus(messageId: Long): List<MessageDto.UserReadInfo> {
-//        val readByMap = messageReadStatus[messageId] ?: return emptyList()
-//        return readByMap.map { (userId, readAt) ->
-//            MessageDto.UserReadInfo(
-//                userId = userId,
-//                username = "User_$userId", // Replace with actual username lookup
-//                readAt = readAt
-//            )
-//        }
-//    }
-//
-//    /**
-//     * Mark a message as read by a user
-//     */
-//    fun markMessageAsRead(messageId: Long, userId: Long, readAt: Long = System.currentTimeMillis()) {
-//        messageReadStatus.computeIfAbsent(messageId) { mutableMapOf() }[userId] = readAt
-//    }
-//
-//    /**
-//     * Check if a message has been read
-//     */
-//    fun isMessageRead(messageId: Long, userId: Long): Boolean {
-//        return messageReadStatus[messageId]?.containsKey(userId) ?: false
-//    }
-//
-//    /**
-//     * Clear typing status for a room (useful for cleanup)
-//     */
-//    fun clearRoomTypingStatus(roomId: Long) {
-//        typingUsers.remove(roomId)
-//    }
-//
-//    /**
-//     * Clear all read status for a message (useful for deletion)
-//     */
-//    fun clearMessageReadStatus(messageId: Long) {
-//        messageReadStatus.remove(messageId)
-//    }
+
 
 }

@@ -19,6 +19,7 @@ import UnauthorizedPage from './pages/UnauthorizedPage';
 import LogoutPage from './pages/LogoutPage';
 import NotFoundPage from './pages/NotFoundPage';
 import UserDetailPage from './pages/UserDetail';
+import OneToOnePage from './pages/OneToOnePage';
 
 const App: React.FC = () => {
   return (
@@ -56,8 +57,16 @@ const App: React.FC = () => {
               <ProtectedRoute>
                 <UserDetailPage />
               </ProtectedRoute>
-            } />
+            }
+          />
 
+          <Route 
+            path="/one-to-one" element={
+              <ProtectedRoute>
+                <OneToOnePage />
+              </ProtectedRoute>
+            }
+          />
 
            <Route
             path="/message"

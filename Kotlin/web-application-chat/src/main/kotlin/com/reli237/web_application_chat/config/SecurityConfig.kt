@@ -127,6 +127,12 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.PUT, "/api/messages/**").authenticated()
                     .requestMatchers(HttpMethod.DELETE, "/api/messages/**").authenticated()
 
+                    // One to one endPoints
+                    .requestMatchers(HttpMethod.GET, "/conversation/*").authenticated()
+                    .requestMatchers(HttpMethod.PUT, "/conversation/messages/*/read").authenticated()
+                    .requestMatchers(HttpMethod.POST, "/conversation/*/read").authenticated()
+                    .requestMatchers(HttpMethod.GET, "/conversations").authenticated()
+
                     // Toutes les autres routes nécessitent une authentification
                     .anyRequest().authenticated()
             }

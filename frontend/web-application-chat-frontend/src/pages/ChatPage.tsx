@@ -1,4 +1,4 @@
-// src/pages/ChatPage.tsx - VERSION AMÉLIORÉE AVEC AFFICHAGE CHRONOLOGIQUE
+// src/pages/ChatPage.tsx - VERSION CORRIGÉE AVEC GESTION DES DATES ET CHRONOLOGIE
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,56 +36,30 @@ import {
   ListItemIcon,
   useTheme,
   useMediaQuery,
-  Divider,
 } from '@mui/material';
 import {
   Send as SendIcon,
   Search as SearchIcon,
   Add as AddIcon,
   Group as GroupIcon,
-  Person as PersonIcon,
   Menu as MenuIcon,
   Close as CloseIcon,
   Wifi as WifiIcon,
   WifiOff as WifiOffIcon,
-  Refresh as RefreshIcon,
   ContentCopy as ContentCopyIcon,
   Reply as ReplyIcon,
-  MoreVert as MoreVertIcon,
   Check as CheckIcon,
   DoneAll as DoneAllIcon,
 } from '@mui/icons-material';
 import LockIcon from '@mui/icons-material/Lock';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { chatWebSocket } from '../services/chatWebsocket';
 import { type MessageResponse } from '../types';
 
 export type MessageStatusType = 'sending' | 'sent' | 'delivered' | 'read' | 'error';
 
-// ==================== FORMATAGE DES DATES ====================
-const formatDateTime = (dateString: string): string => {
-  try {
-    const date = new Date(dateString);
-    
-    if (isNaN(date.getTime())) {
-      console.error('❌ Invalid date string:', dateString);
-      return 'Date invalide';
-    }
-    
-    return date.toLocaleDateString('fr-FR', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  } catch (error) {
-    console.error('❌ Error formatting date:', error, dateString);
-    return 'Date invalide';
-  }
-};
+// ==================== FORMATAGE DES DATES (WhatsApp/Telegram Style) ====================
 
+// Formater l'heure seule (14:30)
 const formatTime = (dateString: string): string => {
   try {
     const date = new Date(dateString);
@@ -104,7 +78,8 @@ const formatTime = (dateString: string): string => {
   }
 };
 
-const formatDate = (dateString: string): string => {
+// Formater la date pour les séparateurs de groupe (comme WhatsApp)
+const formatDateForGroup = (dateString: string): string => {
   try {
     const date = new Date(dateString);
     const today = new Date();
@@ -112,23 +87,36 @@ const formatDate = (dateString: string): string => {
     yesterday.setDate(yesterday.getDate() - 1);
 
     if (isNaN(date.getTime())) {
-      return 'Date invalide';
+      return 'Date inconnue';
     }
 
+    // Réinitialiser les heures pour la comparaison
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const yesterdayStart = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+    const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
     // Aujourd'hui
-    if (date.toDateString() === today.toDateString()) {
+    if (dateStart.getTime() === todayStart.getTime()) {
       return "Aujourd'hui";
     } 
     // Hier
-    else if (date.toDateString() === yesterday.toDateString()) {
+    else if (dateStart.getTime() === yesterdayStart.getTime()) {
       return 'Hier';
     }
-    // Cette semaine
+    // Cette semaine (les 7 derniers jours)
     const weekAgo = new Date(today);
     weekAgo.setDate(today.getDate() - 7);
     if (date > weekAgo) {
       return date.toLocaleDateString('fr-FR', {
         weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      });
+    }
+    
+    // Cette année
+    if (date.getFullYear() === today.getFullYear()) {
+      return date.toLocaleDateString('fr-FR', {
         day: 'numeric',
         month: 'long'
       });
@@ -142,32 +130,71 @@ const formatDate = (dateString: string): string => {
     });
   } catch (error) {
     console.error('Error formatting date for grouping:', error);
+    return 'Date';
+  }
+};
+
+// Formater la date et l'heure complète (pour tooltip ou détails)
+const formatDateTime = (dateString: string): string => {
+  try {
+    const date = new Date(dateString);
+    
+    if (isNaN(date.getTime())) {
+      return 'Date invalide';
+    }
+    
+    return date.toLocaleDateString('fr-FR', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  } catch (error) {
+    console.error('Error formatting datetime:', error);
     return 'Date invalide';
   }
 };
 
-// Fonction pour regrouper les messages par date
+// Fonction pour regrouper les messages par date (chronologie inversée - récents en bas)
 const groupMessagesByDate = (messages: Message[]): { date: string; messages: Message[] }[] => {
+  // D'abord, trier les messages par date croissante (plus ancien en premier)
+  const sortedMessages = [...messages].sort((a, b) => {
+    const dateA = new Date(a.createdAt);
+    const dateB = new Date(b.createdAt);
+    return dateA.getTime() - dateB.getTime();
+  });
+
   const groups: { [key: string]: Message[] } = {};
   
-  messages.forEach(message => {
-    const dateKey = new Date(message.createdAt).toDateString();
+  sortedMessages.forEach(message => {
+    // Utiliser time_stamp de la BDD si disponible, sinon createdAt
+    const dateValue = message.createdAt;
+    const dateKey = new Date(dateValue).toDateString();
+    
     if (!groups[dateKey]) {
       groups[dateKey] = [];
     }
     groups[dateKey].push(message);
   });
 
+  // Trier les groupes par date (plus ancien en premier)
   return Object.entries(groups)
-    .map(([date, msgs]) => ({
-      date: formatDate(msgs[0].createdAt),
-      messages: msgs.sort((a, b) => 
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      )
+    .map(([dateKey, msgs]) => ({
+      date: formatDateForGroup(msgs[0].createdAt),
+      messages: msgs.sort((a, b) => {
+        const dateA = new Date(a.createdAt);
+        const dateB = new Date(b.createdAt);
+        return dateA.getTime() - dateB.getTime();
+      })
     }))
-    .sort((a, b) => 
-      new Date(a.messages[0].createdAt).getTime() - new Date(b.messages[0].createdAt).getTime()
-    );
+    .sort((a, b) => {
+      const dateA = new Date(a.messages[0].createdAt);
+      const dateB = new Date(b.messages[0].createdAt);
+      return dateA.getTime() - dateB.getTime();
+    });
 };
 
 // Fonction pour obtenir les initiales d'un utilisateur
@@ -226,21 +253,25 @@ const ChatPage: React.FC = () => {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<number, number>>({});
 
+  // Corriger le mapping des dates depuis la BDD
   const mapMessageResponseToMessage = (dto: MessageResponse): Message => {
     console.log('🔄 Mapping message DTO:', {
-      dtoSenderId: dto.sender.id,
-      dtoSenderEmail: dto.sender.email,
-      currentUserId: user?.id
+      dtoId: dto.id,
+      timestamp: dto.timestamp
     });
+    
+    // Priorité: time_stamp (BDD) > timestamp > createdAt
+    const dateValue = dto.timestamp;
     
     return {
       id: dto.id,
       content: dto.content,
-      senderId: dto.sender.id,
+      senderId: dto.sender?.id,
       sender: dto.sender,
       chatRoomId: dto.chatRoomId,
-      createdAt: dto.timestamp,
-      updatedAt: dto.timestamp,
+      // Stocker time_stamp pour référence
+      createdAt: dateValue,
+      updatedAt: dateValue,
       isDeleted: dto.isDeleted,
     };
   };
@@ -297,86 +328,53 @@ const ChatPage: React.FC = () => {
       return;
     }
 
-    console.log('🔌 Initializing WebSocket connection...');
-    
-    const handleConnectionChange = (connected: boolean) => {
-      console.log('📡 WebSocket connection status:', connected);
-      setIsWsConnected(connected);
-      if (connected) {
-        setConnectionError(null);
-        setShowConnectionAlert(false);
-        setConnectionRetryCount(0);
-        toast.success('Connexion établie');
-      } else {
-        setConnectionError('Connexion perdue');
-        setShowConnectionAlert(true);
-        setConnectionRetryCount(prev => prev + 1);
-      }
+    console.log('🔌 Initializing WebSocket...');
+    let isMounted = true;
+
+    const handleConnect = () => {
+      if (!isMounted) return;
+      console.log('✅ WebSocket connected');
+      setIsWsConnected(true);
+      setConnectionError(null);
+      setConnectionRetryCount(0);
+      toast.success('Connecté au chat en temps réel', { icon: '✅', duration: 2000 });
     };
 
-    const handleNewMessage = (messageDto: MessageResponse) => {
-      console.log('📨 New message received:', messageDto);
-      const message = mapMessageResponseToMessage(messageDto);
-      
-      setMessages(prev => {
-        const exists = prev.some(m => m.id === message.id);
-        if (exists) {
-          console.log('⚠️ Message already exists, skipping');
-          return prev;
-        }
-        console.log('✅ Adding new message to state');
-        return [...prev, message];
-      });
-
-      if (message.chatRoomId !== currentRoom?.id) {
-        setUnreadCounts(prev => ({
-          ...prev,
-          [message.chatRoomId]: (prev[message.chatRoomId] || 0) + 1
-        }));
-      }
-
-      setTimeout(() => scrollToBottom(), 100);
-    };
-
-    const handleTypingStatus = (data: { userId: number; isTyping: boolean; roomId: number }) => {
-      console.log('⌨️ Typing status:', data);
-      if (data.roomId === currentRoom?.id && data.userId !== user.id) {
-        setTypingUsers(prev => {
-          const newSet = new Set(prev);
-          if (data.isTyping) {
-            newSet.add(data.userId);
-          } else {
-            newSet.delete(data.userId);
-          }
-          return newSet;
-        });
-      }
+    const handleDisconnect = () => {
+      if (!isMounted) return;
+      console.log('❌ WebSocket disconnected');
+      setIsWsConnected(false);
+      setShowConnectionAlert(true);
+      toast.error('Déconnecté du chat en temps réel', { icon: '❌', duration: 3000 });
     };
 
     const handleError = (error: string) => {
+      if (!isMounted) return;
       console.error('❌ WebSocket error:', error);
       setConnectionError(error);
-      setShowConnectionAlert(true);
+      toast.error(`Erreur: ${error}`);
     };
 
-    chatWebSocket.on('connectionChange', handleConnectionChange);
-    chatWebSocket.on('message', handleNewMessage);
-    chatWebSocket.on('typing', handleTypingStatus);
-    chatWebSocket.on('error', handleError);
+    // S'abonner aux événements
+    const unsubConnect = chatWebSocket.onConnect(handleConnect);
+    const unsubDisconnect = chatWebSocket.onDisconnect(handleDisconnect);
+    const unsubError = chatWebSocket.onError(handleError);
 
+    // Connecter
     chatWebSocket.connect(token, user.id);
 
     return () => {
-      console.log('🔌 Cleaning up WebSocket...');
-      chatWebSocket.off('connectionChange', handleConnectionChange);
-      chatWebSocket.off('message', handleNewMessage);
-      chatWebSocket.off('typing', handleTypingStatus);
-      chatWebSocket.off('error', handleError);
+      console.log('🧹 Cleaning up WebSocket');
+      isMounted = false;
+      unsubConnect();
+      unsubDisconnect();
+      unsubError();
       chatWebSocket.disconnect();
     };
   }, [token, user?.id]);
 
   // ==================== SELECT ROOM ====================
+ // ==================== SELECT ROOM ====================
   const selectRoom = async (room: ChatRoom) => {
     try {
       console.log('🎯 Selecting room:', room.id, room.name);
@@ -391,22 +389,78 @@ const ChatPage: React.FC = () => {
       }));
 
       const [messagesResponse, participantsResponse] = await Promise.all([
-        chatApi.getMessages(room.id),
-        chatApi.getParticipants(room.id)
+        chatApi.getMessagesByRoomOrdered(room.id),
+        chatApi.getParticipantsByRoom(room.id)
       ]);
 
+      // CORRECTION ICI: Vérifier le type des données
       const messagesData = messagesResponse.data || [];
-      console.log('✅ Messages loaded:', messagesData.length);
-      setMessages(messagesData);
+      console.log('✅ Messages loaded - Type check:', {
+        isArray: Array.isArray(messagesData),
+        firstItemType: messagesData[0] ? typeof messagesData[0] : 'empty',
+        firstItem: messagesData[0]
+      });
+      
+      // Deux options selon ce que retourne l'API:
+
+      // Option 1: Si messagesData est déjà un tableau de Message
+      let mappedMessages: Message[] = [];
+      
+      if (messagesData.length > 0 && messagesData[0].createdAt !== undefined) {
+        // L'API retourne déjà des Message avec createdAt
+        console.log('✅ Using messages directly (already Message type)');
+        mappedMessages = messagesData.map((msg: any) => ({
+          ...msg,
+          // Assurer que createdAt est défini
+          createdAt: msg.time_stamp || msg.createdAt || msg.timestamp,
+        }));
+      } else {
+        // Option 2: Si messagesData est un tableau de MessageResponse
+        console.log('✅ Mapping from MessageResponse');
+        mappedMessages = messagesData.map((dto: any) => {
+          // Priorité: time_stamp (BDD) > timestamp > createdAt
+          const dateValue = dto.time_stamp || dto.timestamp || dto.createdAt;
+          
+          return {
+            id: dto.id,
+            content: dto.content,
+            senderId: dto.sender?.id || dto.senderId,
+            sender: dto.sender,
+            chatRoomId: dto.chatRoomId,
+            // Stocker time_stamp pour référence
+            time_stamp: dto.time_stamp,
+            createdAt: dateValue,
+            updatedAt: dateValue,
+            isDeleted: dto.isDeleted,
+          };
+        });
+      }
+
+      // Trier par date croissante (plus ancien en premier)
+      mappedMessages.sort((a, b) => {
+        const dateA = new Date(a.createdAt);
+        const dateB = new Date(b.createdAt);
+        return dateA.getTime() - dateB.getTime();
+      });
+
+      console.log('✅ Final mapped messages (sorted):', mappedMessages.length);
+      mappedMessages.forEach((msg, i) => {
+        console.log(`📄 Message ${i + 1}:`, {
+          id: msg.id,
+          date: msg.createdAt,
+          senderId: msg.senderId
+        });
+      });
+      
+      setMessages(mappedMessages);
       
       const participantsData = participantsResponse.data || [];
-      console.log('✅ Participants loaded:', participantsData.length);
+      console.log('✅ Participants loaded:', participantsData);
       setParticipants(participantsData);
 
-      if (currentRoom?.id !== room.id) {
-        chatWebSocket.leaveRoom(currentRoom!.id);
+      if (isWsConnected) {
+        chatWebSocket.joinRoom(room.id);
       }
-      chatWebSocket.joinRoom(room.id);
 
       setTimeout(() => scrollToBottom(), 100);
     } catch (error) {
@@ -417,65 +471,144 @@ const ChatPage: React.FC = () => {
     }
   };
 
+  // ==================== JOIN ROOM WHEN CONNECTED ====================
+  useEffect(() => {
+    if (isWsConnected && currentRoom) {
+      console.log(`📡 Joining room ${currentRoom.id} via WebSocket...`);
+      chatWebSocket.joinRoom(currentRoom.id);
+
+      // S'abonner aux nouveaux messages
+      const unsubscribe = chatWebSocket.onRoomMessage(
+        currentRoom.id,
+        (messageResponse) => {
+          console.log('📨 New message received via WebSocket:', messageResponse);
+          console.log('📨 Message date info:', {
+            timestamp: messageResponse.timestamp,
+          });
+
+          const message = mapMessageResponseToMessage(messageResponse);
+          console.log('📨 Mapped message with date:', {
+            id: message.id,
+            createdAt: message.createdAt,
+            contentPreview: message.content.substring(0, 20)
+          });
+
+          setMessages(prev => {
+            const exists = prev.some(m => m.id === message.id);
+            if (exists) {
+              console.log('⚠️ Message already exists, skipping');
+              return prev;
+            }
+            console.log('✅ Adding new message to state');
+            const newMessages = [...prev, message];
+            
+            // Trier par date après ajout (plus ancien en premier)
+            newMessages.sort((a, b) => {
+              const dateA = new Date(a.createdAt);
+              const dateB = new Date(b.createdAt);
+              return dateA.getTime() - dateB.getTime();
+            });
+            
+            console.log('📊 Total messages now:', newMessages.length);
+            return newMessages;
+          });
+
+          setTimeout(() => scrollToBottom(), 100);
+        }
+      );
+      
+      return () => {
+        console.log(`👋 Leaving room ${currentRoom.id}`);
+        chatWebSocket.leaveRoom(currentRoom.id);
+        unsubscribe();
+      };
+    }
+  }, [isWsConnected, currentRoom?.id]);
+
   // ==================== SEND MESSAGE ====================
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !currentRoom || !user) return;
 
+    if (!isWsConnected) {
+      toast.error('Pas connecté au chat');
+      return;
+    }
+
     const messageContent = newMessage.trim();
     setNewMessage('');
 
-    const tempId = Date.now();
+    // Create temporary message for optimistic UI
+    const tempId = -Date.now(); // Negative ID to distinguish from real messages
+    const now = new Date().toISOString();
+    
     const tempMessage: Message = {
       id: tempId,
       content: messageContent,
       senderId: user.id,
       sender: { id: user.id, email: user.email },
       chatRoomId: currentRoom.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      // Simuler le format de la BDD
+      createdAt: now,
+      updatedAt: now,
       isDeleted: false,
     };
 
-    setMessages(prev => [...prev, tempMessage]);
+    console.log('📤 Sending temporary message with date:', tempMessage.createdAt);
+
+    // Add optimistic message immediately
+    setMessages(prev => {
+      const newMessages = [...prev, tempMessage];
+      // Trier après ajout
+      return newMessages.sort((a, b) => {
+        const dateA = new Date(a.createdAt);
+        const dateB = new Date(b.createdAt);
+        return dateA.getTime() - dateB.getTime();
+      });
+    });
+    
     setMessageStatus(prev => ({ ...prev, [tempId]: 'sending' }));
     scrollToBottom();
 
     try {
-      console.log('📤 Sending message via WebSocket:', messageContent);
-      chatWebSocket.sendMessage(currentRoom.id, messageContent);
+      const success = await chatWebSocket.sendMessage(currentRoom.id, messageContent);
       
-      setMessageStatus(prev => ({ ...prev, [tempId]: 'sent' }));
-      
-      setTimeout(() => {
-        setMessages(prev => prev.filter(m => m.id !== tempId));
-        setMessageStatus(prev => {
-          const newStatus = { ...prev };
-          delete newStatus[tempId];
-          return newStatus;
-        });
-      }, 1000);
+      if (success) {
+        console.log('✅ Message sent successfully via WebSocket');
+        setMessageStatus(prev => ({ ...prev, [tempId]: 'sent' }));
+        
+        // The real message will arrive via WebSocket onRoomMessage
+        // Remove temp message after a delay to avoid duplication
+        setTimeout(() => {
+          setMessages(prev => prev.filter(m => m.id !== tempId));
+          setMessageStatus(prev => {
+            const newStatus = { ...prev };
+            delete newStatus[tempId];
+            return newStatus;
+          });
+        }, 2000);
+      } else {
+        console.error('❌ Failed to send message');
+        setMessageStatus(prev => ({ ...prev, [tempId]: 'error' }));
+        toast.error('Erreur lors de l\'envoi du message');
+      }
 
+      handleStopTyping();
     } catch (error) {
       console.error('❌ Error sending message:', error);
       setMessageStatus(prev => ({ ...prev, [tempId]: 'error' }));
-      toast.error('Erreur lors de l\'envoi du message');
+      toast.error('Erreur lors de l\'envoi');
     }
   };
 
-  // ==================== TYPING INDICATOR ====================
-  const handleTyping = () => {
-    if (!currentRoom) return;
-
-    chatWebSocket.sendTypingStatus(currentRoom.id, true);
-
+  // ==================== TYPING NOTIFICATIONS ====================
+  const handleStopTyping = useCallback(() => {
+    if (currentRoom && isWsConnected) {
+      chatWebSocket.sendTypingNotification(currentRoom.id, false);
+    }
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-
-    typingTimeoutRef.current = setTimeout(() => {
-      chatWebSocket.sendTypingStatus(currentRoom.id, false);
-    }, 1000);
-  };
+  }, [currentRoom, isWsConnected]);
 
   // ==================== CREATE ROOM ====================
   const handleCreateRoom = async () => {
@@ -553,6 +686,21 @@ const ChatPage: React.FC = () => {
     const senderInfo = participants.find(p => p.userId === message.senderId);
     const senderEmail = message.sender?.email || senderInfo?.user?.email || 'Inconnu';
     const status = messageStatus[message.id];
+    
+    // Obtenir la date correcte pour l'affichage
+    const messageDate =  message.createdAt;
+    const timeDisplay = formatTime(messageDate);
+    const fullDateTime = formatDateTime(messageDate);
+
+    // Debug log
+    console.log('🎨 Rendering message:', {
+      messageId: message.id,
+      senderId: message.senderId,
+      currentUserId: user?.id,
+      isOwnMessage,
+      dateUsed: messageDate,
+      timeDisplay
+    });
 
     return (
       <Box
@@ -560,32 +708,30 @@ const ChatPage: React.FC = () => {
         sx={{
           display: 'flex',
           flexDirection: isOwnMessage ? 'row-reverse' : 'row',
-          alignItems: 'flex-end',
-          mb: 1.5,
+          alignItems: 'flex-start',
+          mb: 2,
           gap: 1,
           px: 2,
         }}
         onContextMenu={(e) => handleContextMenu(e, message)}
       >
-        {/* Avatar */}
-        {!isOwnMessage && (
-          <Avatar
-            sx={{
-              width: 36,
-              height: 36,
-              bgcolor: getAvatarColor(message.senderId),
-              fontSize: '0.875rem',
-              flexShrink: 0,
-            }}
-          >
-            {getInitials(senderEmail)}
-          </Avatar>
-        )}
+        {/* Avatar - Always show */}
+        <Avatar
+          sx={{
+            width: 40,
+            height: 40,
+            bgcolor: isOwnMessage ? getAvatarColor(user?.id || 0) : getAvatarColor(message.senderId),
+            fontSize: '0.875rem',
+            flexShrink: 0,
+          }}
+        >
+          {isOwnMessage ? getInitials(user?.email) : getInitials(senderEmail)}
+        </Avatar>
 
         {/* Message Bubble */}
         <Box
           sx={{
-            maxWidth: { xs: '75%', sm: '60%', md: '50%' },
+            maxWidth: { xs: '70%', sm: '60%', md: '50%' },
             display: 'flex',
             flexDirection: 'column',
             alignItems: isOwnMessage ? 'flex-end' : 'flex-start',
@@ -599,7 +745,7 @@ const ChatPage: React.FC = () => {
                 color: getAvatarColor(message.senderId),
                 fontWeight: 600,
                 mb: 0.5,
-                ml: 1,
+                ml: 0.5,
               }}
             >
               {senderEmail.split('@')[0]}
@@ -607,83 +753,78 @@ const ChatPage: React.FC = () => {
           )}
 
           {/* Message Content */}
-          <Paper
-            elevation={1}
-            sx={{
-              py: 1,
-              px: 1.5,
-              borderRadius: 2,
-              bgcolor: isOwnMessage ? 'primary.main' : 'background.paper',
-              color: isOwnMessage ? 'primary.contrastText' : 'text.primary',
-              borderBottomRightRadius: isOwnMessage ? 4 : 16,
-              borderBottomLeftRadius: isOwnMessage ? 16 : 4,
-              wordWrap: 'break-word',
-              position: 'relative',
-            }}
-          >
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-              {message.content}
-            </Typography>
-
-            {/* Time & Status */}
-            <Box
+          <Tooltip title={fullDateTime} placement="top" arrow>
+            <Paper
+              elevation={isOwnMessage ? 2 : 1}
               sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
-                mt: 0.5,
-                justifyContent: 'flex-end',
+                py: 1.5,
+                px: 2,
+                borderRadius: 2.5,
+                bgcolor: isOwnMessage ? 'primary.main' : 'grey.100',
+                color: isOwnMessage ? 'white' : 'text.primary',
+                borderTopRightRadius: isOwnMessage ? 4 : 20,
+                borderTopLeftRadius: isOwnMessage ? 20 : 4,
+                borderBottomRightRadius: 20,
+                borderBottomLeftRadius: 20,
+                wordWrap: 'break-word',
+                position: 'relative',
               }}
             >
-              <Typography
-                variant="caption"
-                sx={{
-                  fontSize: '0.7rem',
-                  opacity: 0.8,
-                  color: isOwnMessage ? 'inherit' : 'text.secondary',
+              <Typography 
+                variant="body1" 
+                sx={{ 
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.5,
                 }}
               >
-                {formatTime(message.createdAt)}
+                {message.content}
               </Typography>
-              
-              {/* Status Icons for own messages */}
-              {isOwnMessage && (
-                <>
-                  {status === 'sending' && (
-                    <CircularProgress size={10} sx={{ color: 'inherit', opacity: 0.8 }} />
-                  )}
-                  {status === 'sent' && (
-                    <CheckIcon sx={{ fontSize: 14, opacity: 0.8 }} />
-                  )}
-                  {status === 'delivered' && (
-                    <DoneAllIcon sx={{ fontSize: 14, opacity: 0.8 }} />
-                  )}
-                  {status === 'read' && (
-                    <DoneAllIcon sx={{ fontSize: 14, color: '#4fc3f7' }} />
-                  )}
-                  {status === 'error' && (
-                    <Typography variant="caption" sx={{ color: 'error.light' }}>!</Typography>
-                  )}
-                </>
-              )}
-            </Box>
-          </Paper>
-        </Box>
 
-        {/* Own message avatar placeholder for alignment */}
-        {isOwnMessage && (
-          <Avatar
-            sx={{
-              width: 36,
-              height: 36,
-              bgcolor: getAvatarColor(user?.id || 0),
-              fontSize: '0.875rem',
-              flexShrink: 0,
-            }}
-          >
-            {getInitials(user?.email)}
-          </Avatar>
-        )}
+              {/* Time & Status */}
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  mt: 0.5,
+                  justifyContent: 'flex-end',
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontSize: '0.7rem',
+                    opacity: isOwnMessage ? 0.9 : 0.7,
+                    color: isOwnMessage ? 'white' : 'text.secondary',
+                  }}
+                >
+                  {timeDisplay}
+                </Typography>
+                
+                {/* Status Icons for own messages */}
+                {isOwnMessage && (
+                  <>
+                    {status === 'sending' && (
+                      <CircularProgress size={10} sx={{ color: 'white', opacity: 0.8 }} />
+                    )}
+                    {status === 'sent' && (
+                      <CheckIcon sx={{ fontSize: 14, opacity: 0.8, color: 'white' }} />
+                    )}
+                    {status === 'delivered' && (
+                      <DoneAllIcon sx={{ fontSize: 14, opacity: 0.8, color: 'white' }} />
+                    )}
+                    {status === 'read' && (
+                      <DoneAllIcon sx={{ fontSize: 14, color: '#4fc3f7' }} />
+                    )}
+                    {status === 'error' && (
+                      <Typography variant="caption" sx={{ color: 'error.light' }}>!</Typography>
+                    )}
+                  </>
+                )}
+              </Box>
+            </Paper>
+          </Tooltip>
+        </Box>
       </Box>
     );
   };
@@ -763,70 +904,91 @@ const ChatPage: React.FC = () => {
           </Box>
 
           {/* Rooms List */}
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
-            {isLoadingRooms ? (
-              <Box display="flex" alignItems="center" justifyContent="center" p={3}>
-                <CircularProgress />
-              </Box>
-            ) : filteredRooms.length === 0 ? (
-              <Box display="flex" alignItems="center" justifyContent="center" p={3}>
-                <Typography color="text.secondary" variant="body2">
-                  {searchQuery ? 'Aucun salon trouvé' : 'Aucun salon disponible'}
-                </Typography>
-              </Box>
-            ) : (
-              <List sx={{ p: 0 }}>
-                {filteredRooms.map((room) => (
-                  <ListItemButton
-                    key={room.id}
-                    selected={currentRoom?.id === room.id}
-                    onClick={() => selectRoom(room)}
-                    sx={{
-                      py: 2,
-                      borderBottom: 1,
-                      borderColor: 'divider',
-                      '&.Mui-selected': {
-                        bgcolor: 'action.selected',
-                        '&:hover': {
+          
+          {/* Rooms List */}
+            <Box sx={{ 
+              flex: 1, 
+              overflow: 'auto',
+              '&::-webkit-scrollbar': {
+                width: '6px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: 'transparent',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                borderRadius: '3px',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                },
+              },
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'rgba(0, 0, 0, 0.1) transparent',
+            }}>
+              {isLoadingRooms ? (
+                <Box display="flex" alignItems="center" justifyContent="center" p={3}>
+                  <CircularProgress />
+                </Box>
+              ) : filteredRooms.length === 0 ? (
+                <Box display="flex" alignItems="center" justifyContent="center" p={3}>
+                  <Typography color="text.secondary" variant="body2">
+                    {searchQuery ? 'Aucun salon trouvé' : 'Aucun salon disponible'}
+                  </Typography>
+                </Box>
+              ) : (
+                <List sx={{ p: 0 }}>
+                  {filteredRooms.map((room) => (
+                    <ListItemButton
+                      key={room.id}
+                      selected={currentRoom?.id === room.id}
+                      onClick={() => selectRoom(room)}
+                      sx={{
+                        py: 2,
+                        borderBottom: 1,
+                        borderColor: 'divider',
+                        '&.Mui-selected': {
                           bgcolor: 'action.selected',
+                          '&:hover': {
+                            bgcolor: 'action.selected',
+                          },
                         },
-                      },
-                    }}
-                  >
-                    <ListItemAvatar>
-                      <Badge
-                        badgeContent={unreadCounts[room.id] || 0}
-                        color="error"
-                        max={99}
-                        invisible={!unreadCounts[room.id]}
-                      >
-                        <Avatar sx={{ bgcolor: 'primary.main' }}>
-                          <GroupIcon />
-                        </Avatar>
-                      </Badge>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={
-                        <Typography variant="subtitle1" fontWeight={unreadCounts[room.id] ? 700 : 500}>
-                          {room.name}
-                        </Typography>
-                      }
-                      secondary={
-                        <Box display="flex" alignItems="center" gap={1}>
-                          <Typography variant="caption" color="text.secondary">
-                            {room.participantCount || 0} participants
+                      }}
+                    >
+                      <ListItemAvatar>
+                        <Badge
+                          badgeContent={unreadCounts[room.id] || 0}
+                          color="error"
+                          max={99}
+                          invisible={!unreadCounts[room.id]}
+                        >
+                          <Avatar sx={{ bgcolor: 'primary.main' }}>
+                            <GroupIcon />
+                          </Avatar>
+                        </Badge>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={
+                          <Typography variant="subtitle1" fontWeight={unreadCounts[room.id] ? 700 : 500}>
+                            {room.name}
                           </Typography>
-                          {room.isPrivate && (
-                            <Chip icon={<LockIcon />} label="Privé" size="small" />
-                          )}
-                        </Box>
-                      }
-                    />
-                  </ListItemButton>
-                ))}
-              </List>
-            )}
-          </Box>
+                        }
+                        secondary={
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="caption" color="text.secondary">
+                              {room.participantCount || 0} participants
+                            </Typography>
+                            {room.isPrivate && (
+                              <Chip icon={<LockIcon />} label="Privé" size="small" />
+                            )}
+                          </Box>
+                        }
+                      />
+                    </ListItemButton>
+                  ))}
+                </List>
+              )}
+            </Box>
+
         </Paper>
 
         {/* CHAT AREA */}
@@ -866,7 +1028,16 @@ const ChatPage: React.FC = () => {
                     </Typography>
                   </Box>
                 </Box>
-                <Box display="flex" gap={1}>
+                <Box display="flex" gap={1} alignItems="center">
+                  {/* Debug info */}
+                  <Tooltip title={`Connecté en tant que: ${user?.email} (ID: ${user?.id})`}>
+                    <Chip 
+                      label={`User: ${user?.id}`} 
+                      size="small" 
+                      color="primary"
+                      variant="outlined"
+                    />
+                  </Tooltip>
                   <Tooltip title={isWsConnected ? 'Connecté' : 'Déconnecté'}>
                     <IconButton color={isWsConnected ? 'success' : 'error'}>
                       {isWsConnected ? <WifiIcon /> : <WifiOffIcon />}
@@ -879,66 +1050,90 @@ const ChatPage: React.FC = () => {
               </Paper>
 
               {/* Messages Area */}
-              <Box
-                sx={{
-                  flex: 1,
-                  overflow: 'auto',
-                  bgcolor: 'background.default',
-                  backgroundImage: 'linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)',
-                  backgroundSize: '20px 20px',
-                }}
-              >
-                {isLoading ? (
-                  <Box display="flex" alignItems="center" justifyContent="center" height="100%">
-                    <CircularProgress />
-                  </Box>
-                ) : messages.length === 0 ? (
-                  <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100%" gap={2}>
-                    <Avatar sx={{ width: 80, height: 80, bgcolor: 'primary.light' }}>
-                      <GroupIcon sx={{ fontSize: 40 }} />
-                    </Avatar>
-                    <Typography variant="h6" color="text.secondary">
-                      Aucun message pour le moment
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Soyez le premier à envoyer un message !
-                    </Typography>
-                  </Box>
-                ) : (
-                  <Box sx={{ py: 2 }}>
-                    {groupMessagesByDate(messages).map((group, groupIndex) => (
-                      <Box key={groupIndex}>
-                        {/* Date Separator */}
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            my: 3,
-                          }}
-                        >
-                          <Chip
-                            label={group.date}
-                            size="small"
+              
+              {/* Messages Area */}
+                <Box
+                  sx={{
+                    flex: 1,
+                    overflow: 'auto',
+                    bgcolor: 'background.default',
+                    backgroundImage: 'linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)',
+                    backgroundSize: '20px 20px',
+                    // Ajouter un défilement personnalisé
+                    '&::-webkit-scrollbar': {
+                      width: '8px',
+                      height: '8px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      background: 'transparent',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                      borderRadius: '4px',
+                      '&:hover': {
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      },
+                    },
+                    // Pour Firefox
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'rgba(0, 0, 0, 0.2) transparent',
+                  }}
+                >
+                  {isLoading ? (
+                    <Box display="flex" alignItems="center" justifyContent="center" height="100%">
+                      <CircularProgress />
+                    </Box>
+                  ) : messages.length === 0 ? (
+                    <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100%" gap={2}>
+                      <Avatar sx={{ width: 80, height: 80, bgcolor: 'primary.light' }}>
+                        <GroupIcon sx={{ fontSize: 40 }} />
+                      </Avatar>
+                      <Typography variant="h6" color="text.secondary">
+                        Aucun message pour le moment
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Soyez le premier à envoyer un message !
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Box sx={{ py: 2, minHeight: '100%' }}>
+                      {groupMessagesByDate(messages).map((group, groupIndex) => (
+                        <Box key={groupIndex}>
+                          {/* Date Separator - Sticky comme WhatsApp */}
+                          <Box
                             sx={{
-                              bgcolor: 'background.paper',
-                              fontWeight: 600,
-                              px: 2,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              my: 3,
+                              position: 'sticky',
+                              top: 0,
+                              zIndex: 10,
                             }}
-                          />
-                        </Box>
+                          >
+                            <Chip
+                              label={group.date}
+                              size="small"
+                              sx={{
+                                bgcolor: 'background.paper',
+                                fontWeight: 600,
+                                px: 2,
+                                boxShadow: 1,
+                              }}
+                            />
+                          </Box>
 
-                        {/* Messages for this date */}
-                        {group.messages.map((message) => {
-                          const isOwnMessage = message.senderId === user.id;
-                          return renderMessageBubble(message, isOwnMessage);
-                        })}
-                      </Box>
-                    ))}
-                    <div ref={messagesEndRef} />
-                  </Box>
-                )}
-              </Box>
+                          {/* Messages for this date */}
+                          {group.messages.map((message) => {
+                            const isOwnMessage = Number(message.senderId) === Number(user?.id);
+                            return renderMessageBubble(message, isOwnMessage);
+                          })}
+                        </Box>
+                      ))}
+                      <div ref={messagesEndRef} />
+                    </Box>
+                  )}
+                </Box>
 
               {/* Typing Indicator */}
               {typingUsers.size > 0 && (
@@ -1002,7 +1197,15 @@ const ChatPage: React.FC = () => {
                     value={newMessage}
                     onChange={(e) => {
                       setNewMessage(e.target.value);
-                      handleTyping();
+                      if (currentRoom && isWsConnected) {
+                        chatWebSocket.sendTypingNotification(currentRoom.id, true);
+                        if (typingTimeoutRef.current) {
+                          clearTimeout(typingTimeoutRef.current);
+                        }
+                        typingTimeoutRef.current = setTimeout(() => {
+                          chatWebSocket.sendTypingNotification(currentRoom.id, false);
+                        }, 1000);
+                      }
                     }}
                     onKeyPress={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {

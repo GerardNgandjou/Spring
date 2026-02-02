@@ -1,4 +1,5 @@
 // src/services/api/user.ts
+import type { UserResponse } from '../../types';
 import api from './api';
 
 export const userApi = {
@@ -26,4 +27,14 @@ export const userApi = {
   updateUserStatus: async (userId: number, isActive: boolean) => {
     return api.patch(`/users/${userId}/status`, { isActive });
   },
+
+    // Récupérer tous les utilisateurs sauf l'utilisateur courant
+  getAllUsersExceptCurrentUser: (currentUserId: number) => 
+    api.get<UserResponse[]>(`/api/users/except/${currentUserId}`),
+  
+  // Rechercher des utilisateurs
+  searchUsers: (currentUserId: number, query: string) => 
+    api.get<UserResponse[]>(`/api/users/search/${currentUserId}`, {
+      params: { query }
+    }),
 };

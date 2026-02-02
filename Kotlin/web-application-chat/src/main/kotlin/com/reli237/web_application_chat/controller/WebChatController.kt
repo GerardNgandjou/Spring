@@ -1,8 +1,12 @@
 package com.reli237.web_application_chat.controller
 
 import com.reli237.web_application_chat.dto.MessageDto
+import com.reli237.web_application_chat.dto.PrivateDto
+import com.reli237.web_application_chat.repository.UsersRepository
 import com.reli237.web_application_chat.service.ChatRoomService
 import com.reli237.web_application_chat.service.MessageService
+import com.reli237.web_application_chat.service.PrivateChatService
+import org.slf4j.LoggerFactory
 import org.springframework.messaging.handler.annotation.DestinationVariable
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.Payload
@@ -10,14 +14,20 @@ import org.springframework.messaging.handler.annotation.SendTo
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.messaging.simp.annotation.SendToUser
+import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.stereotype.Controller
 import java.security.Principal
+import java.time.LocalDateTime
 
 @Controller
 class WebChatController(
     private val messageService: MessageService,
-    private val messagingTemplate: SimpMessagingTemplate
+    private val messagingTemplate: SimpMessagingTemplate,
+    private val privateChatService: PrivateChatService,
+    private val usersRepository: UsersRepository
 ) {
+
+    private val logger = LoggerFactory.getLogger(this::class.java)
 
     /**
      * Envoyer un message à une salle de chat spécifique
@@ -342,6 +352,81 @@ class WebChatController(
             "/queue/messages/read",
             MessageReadNotification(messageId, readByUserId, System.currentTimeMillis())
         )
+    }
+
+    //============= Endpoints WebSocket OneToOne Conversation  ===============
+
+    @MessageMapping("/private/send/{senderId}")
+    @SendToUser("/queue/private/confirmation")
+    fun sendPrivateMessage(
+        @DestinationVariable senderId: Long,
+        @Payload request: PrivateDto.PrivateChatRequest,
+        headerAccessor: SimpMessageHeaderAccessor
+    ): PrivateChatService.PrivateChatNotification {
+        // Envoyer le message via le service
+        val response = privateChatService.sendMessage(senderId, request)
+
+        // Retourner la confirmation à l'expéditeur
+        return PrivateChatService.PrivateChatNotification(
+            messageId = response.id,
+            senderId = response.senderId1,
+            senderName = response.senderName1,
+            content = response.content,
+            timestamp = response.timestamp,
+            isOwnMessage = true
+        )
+    }
+
+    @MessageMapping("/private/typing/{senderId}/{receiverId}")
+    fun handleTypingIndicator(
+        @DestinationVariable senderId: Long,
+        @DestinationVariable receiverId: Long,
+        @Payload isTyping: Boolean
+    ) {
+        // Vérifier si l'utilisateur existe
+        val sender = usersRepository.findById(senderId).orElse(null)
+        if (sender == null) {
+            logger.warn("Sender with ID $senderId not found")
+            return
+        }
+
+        // Vérifier si le destinataire existe
+        val receiver = usersRepository.findById(receiverId).orElse(null)
+        if (receiver == null) {
+            logger.warn("Receiver with ID $receiverId not found")
+            return
+        }
+
+        // Créer la notification de frappe
+        val typingNotification = PrivateDto.TypingNotification(
+            senderId = senderId,
+            senderName = sender.email,
+            receiverId = receiverId,
+            isTyping = isTyping,
+            timestamp = LocalDateTime.now()
+        )
+
+        // Envoyer la notification au destinataire uniquement
+        messagingTemplate.convertAndSend(
+            "/topic/private/typing/${receiverId}",
+            typingNotification
+        )
+
+        // Log pour le débogage
+        if (isTyping) {
+            logger.info("User $senderId is typing to $receiverId")
+        } else {
+            logger.info("User $senderId stopped typing to $receiverId")
+        }
+    }
+
+    @MessageMapping("/private/read/{userId}")
+    fun markMessagesAsRead(
+        @DestinationVariable userId: Long,
+        @Payload messageIds: List<Long>
+    ) {
+        val request = PrivateDto.MarkAsReadRequest(messageIds = messageIds)
+        privateChatService.markMessagesAsRead(userId, request)
     }
 
     // ==================== DATA CLASSES ====================

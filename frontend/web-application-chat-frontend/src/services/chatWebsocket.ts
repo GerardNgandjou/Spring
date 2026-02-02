@@ -2,6 +2,7 @@
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import type { MessageResponse } from '../types';
+import type { PrivateChatMessage } from '../types/oneToOne.type';
 
 export interface WebSocketMessage {
   type:
@@ -11,9 +12,11 @@ export interface WebSocketMessage {
     | 'TYPING'
     | 'USER_JOINED'
     | 'USER_LEFT'
-    | 'SYSTEM';
+    | 'SYSTEM'
+    | 'PRIVATE_MESSAGE'
+    | 'PRIVATE_TYPING';
   roomId?: number;
-  message?: MessageResponse;
+  message?: MessageResponse | PrivateChatMessage;
   messageId?: number;
   userId?: number;
   username?: string;
@@ -26,16 +29,28 @@ interface CallbackMap<T> {
   [key: number]: Array<(data: T) => void>;
 }
 
+interface PrivateMessageCallback {
+  [key: string]: Array<(message: PrivateChatMessage) => void>;
+}
+
+interface PrivateTypingCallback {
+  [key: string]: Array<(data: { userId: number; isTyping: boolean; username: string }) => void>;
+}
+
 class ChatWebSocketService {
   private client: Client | null = null;
   private subscriptions: Map<string, any> = new Map();
 
-  // Callbacks par room
+  // Callbacks pour les salles de groupe
   private messageCallbacks: CallbackMap<MessageResponse> = {};
   private typingCallbacks: CallbackMap<{
     userId: number;
     isTyping: boolean;
   }> = {};
+
+  // Callbacks pour les messages privés
+  private privateMessageCallbacks: PrivateMessageCallback = {};
+  private privateTypingCallbacks: PrivateTypingCallback = {};
 
   // Callbacks globaux
   private connectionChangeCallbacks: Array<(connected: boolean) => void> = [];
@@ -49,6 +64,7 @@ class ChatWebSocketService {
   private currentUserId: number | null = null;
   private currentToken: string | null = null;
   private connectedRooms: Set<number> = new Set();
+  private privateSubscriptionsActive = false;
 
   constructor() {
     this.initializeClient();
@@ -104,11 +120,17 @@ class ChatWebSocketService {
           this.subscribeToRoom(roomId);
         });
 
+        // Réactiver les abonnements privés si l'utilisateur est connecté
+        if (this.currentUserId) {
+          this.setupPrivateSubscriptions();
+        }
+
         this.notifyConnectionChange(true);
       },
 
       onDisconnect: (frame) => {
         this.isConnected = false;
+        this.privateSubscriptionsActive = false;
         console.log('❌ WebSocket disconnected');
         this.notifyConnectionChange(false);
       },
@@ -128,6 +150,7 @@ class ChatWebSocketService {
       onWebSocketClose: (event) => {
         console.log('🔒 WebSocket closed');
         this.isConnected = false;
+        this.privateSubscriptionsActive = false;
         this.notifyConnectionChange(false);
       },
     });
@@ -170,13 +193,130 @@ class ChatWebSocketService {
       this.currentUserId = null;
       this.currentToken = null;
       this.connectedRooms.clear();
+      this.privateSubscriptionsActive = false;
       this.notifyConnectionChange(false);
+    }
+  }
+
+  // ==================== GESTION DES MESSAGES PRIVÉS ====================
+
+  setupPrivateSubscriptions(): void {
+    if (!this.client || !this.client.connected || !this.currentUserId) {
+      console.warn('⚠️ Cannot setup private subscriptions: WebSocket not ready');
+      return;
+    }
+
+    if (this.privateSubscriptionsActive) {
+      console.log('✅ Private subscriptions already active');
+      return;
+    }
+
+    console.log(`🔔 Setting up private subscriptions for user ${this.currentUserId}`);
+
+    // S'abonner aux notifications de messages privés
+    const privateMessageDestination = `/topic/private/${this.currentUserId}`;
+    const privateMessageSubscription = this.client.subscribe(
+      privateMessageDestination,
+      (message) => {
+        try {
+          const notification = JSON.parse(message.body);
+          console.log('📨 Private message received:', notification);
+          
+          this.handlePrivateMessage(notification);
+        } catch (error) {
+          console.error('❌ Error parsing private message:', error);
+        }
+      }
+    );
+
+    this.subscriptions.set(`private_${this.currentUserId}`, privateMessageSubscription);
+
+    // S'abonner aux notifications de frappe privées
+    const privateTypingDestination = `/topic/private/typing/${this.currentUserId}`;
+    const privateTypingSubscription = this.client.subscribe(
+      privateTypingDestination,
+      (message) => {
+        try {
+          const typingNotification = JSON.parse(message.body);
+          console.log('⌨️ Private typing notification:', typingNotification);
+          
+          this.handlePrivateTypingNotification(typingNotification);
+        } catch (error) {
+          console.error('❌ Error parsing private typing notification:', error);
+        }
+      }
+    );
+
+    this.subscriptions.set(`private_typing_${this.currentUserId}`, privateTypingSubscription);
+
+    this.privateSubscriptionsActive = true;
+    console.log('✅ Private subscriptions activated');
+  }
+
+  sendPrivateMessage(senderId: number, receiverId: number, content: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!this.isConnected || !this.client?.connected) {
+        console.error('❌ Cannot send private message: WebSocket not connected');
+        resolve(false);
+        return;
+      }
+
+      console.log(`✉️ Sending private message to user ${receiverId}:`, content.substring(0, 50) + '...');
+
+      const messageRequest = {
+        senderId,
+        receiverId,
+        content,
+        timestamp: new Date().toISOString(),
+      };
+
+      try {
+        this.client.publish({
+          destination: `/app/private/send`,
+          body: JSON.stringify(messageRequest),
+          headers: {
+            'content-type': 'application/json',
+          },
+        });
+
+        console.log('✅ Private message published to server');
+        resolve(true);
+      } catch (error) {
+        console.error('❌ Error publishing private message:', error);
+        resolve(false);
+      }
+    });
+  }
+
+  sendPrivateTypingNotification(senderId: number, receiverId: number, isTyping: boolean): void {
+    if (!this.isConnected || !this.client?.connected) {
+      console.warn('⚠️ Cannot send private typing notification: WebSocket not ready');
+      return;
+    }
+
+    const typingRequest = {
+      senderId,
+      receiverId,
+      isTyping,
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      this.client.publish({
+        destination: `/app/private/typing`,
+        body: JSON.stringify(typingRequest),
+        headers: { 'content-type': 'application/json' },
+      });
+
+      console.log(`⌨️ Private typing notification sent to user ${receiverId}: ${isTyping ? 'typing' : 'stopped'}`);
+    } catch (error) {
+      console.error('❌ Error sending private typing notification:', error);
     }
   }
 
   // ==================== ROOM MANAGEMENT ====================
 
- joinRoom(roomId: number): void {
+  joinRoom(roomId: number): void {
     if (!this.client || !this.client.connected) {
         console.warn('⚠️ WebSocket not connected');
         return;
@@ -205,10 +345,10 @@ class ChatWebSocketService {
     this.subscriptions.set(`typing_${roomId}`, typingSubscription);
 
     console.log(`✅ Joined room ${roomId}`);
-}
+  }
 
- // Méthode pour se désabonner
-private unsubscribeFromRoom(roomId: number): void {
+  // Méthode pour se désabonner
+  private unsubscribeFromRoom(roomId: number): void {
     const roomKey = `room_${roomId}`;
     const typingKey = `typing_${roomId}`;
 
@@ -225,14 +365,14 @@ private unsubscribeFromRoom(roomId: number): void {
         this.subscriptions.delete(typingKey);
         console.log(`🔕 Unsubscribed from room ${roomId} typing`);
     }
-}
+  }
 
-// Quand l'utilisateur quitte un salon
-leaveRoom(roomId: number): void {
+  // Quand l'utilisateur quitte un salon
+  leaveRoom(roomId: number): void {
     this.unsubscribeFromRoom(roomId);
     this.connectedRooms.delete(roomId);
     console.log(`👋 Left room ${roomId}`);
-}
+  }
 
   private subscribeToRoom(roomId: number): void {
     if (!this.client) return;
@@ -371,7 +511,53 @@ leaveRoom(roomId: number): void {
     }
   }
 
-  // ==================== CALLBACKS ====================
+  // ==================== CALLBACKS PRIVÉS ====================
+
+  /**
+   * S'abonner aux messages privés d'un contact spécifique
+   */
+  onPrivateMessage(
+    contactId: number,
+    callback: (message: PrivateChatMessage) => void
+  ): () => void {
+    const key = `private_${contactId}`;
+    
+    if (!this.privateMessageCallbacks[key]) {
+      this.privateMessageCallbacks[key] = [];
+    }
+
+    this.privateMessageCallbacks[key].push(callback);
+
+    return () => {
+      const index = this.privateMessageCallbacks[key].indexOf(callback);
+      if (index > -1) {
+        this.privateMessageCallbacks[key].splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * S'abonner aux notifications de frappe d'un contact spécifique
+   */
+  onPrivateTyping(
+    contactId: number,
+    callback: (data: { userId: number; isTyping: boolean; username: string }) => void
+  ): () => void {
+    const key = `private_typing_${contactId}`;
+    
+    if (!this.privateTypingCallbacks[key]) {
+      this.privateTypingCallbacks[key] = [];
+    }
+
+    this.privateTypingCallbacks[key].push(callback);
+
+    return () => {
+      const index = this.privateTypingCallbacks[key].indexOf(callback);
+      if (index > -1) {
+        this.privateTypingCallbacks[key].splice(index, 1);
+      }
+    };
+  }
 
   /**
    * S'abonner aux changements de connexion
@@ -497,6 +683,62 @@ leaveRoom(roomId: number): void {
 
   // ==================== HANDLERS PRIVÉS ====================
 
+  private handlePrivateMessage(notification: any): void {
+    const { senderId, receiverId, messageId, content, timestamp, senderName } = notification;
+    
+    // Créer un objet PrivateChatMessage
+    const privateMessage: PrivateChatMessage = {
+      id: messageId,
+      senderId1: senderId,
+      senderId2: receiverId,
+      senderName1: senderName || `User ${senderId}`,
+      senderName2: '', // Serà rempli par le frontend
+      content,
+      timestamp: timestamp || new Date().toISOString(),
+      isRead: false,
+    };
+
+    // Notifier les callbacks pour ce contact
+    const senderKey = `private_${senderId}`;
+    if (this.privateMessageCallbacks[senderKey]) {
+      this.privateMessageCallbacks[senderKey].forEach((callback) => {
+        try {
+          callback(privateMessage);
+        } catch (error) {
+          console.error('Error in private message callback:', error);
+        }
+      });
+    }
+
+    // Notifier aussi les callbacks généraux (pour les notifications)
+    const generalKey = `private_all`;
+    if (this.privateMessageCallbacks[generalKey]) {
+      this.privateMessageCallbacks[generalKey].forEach((callback) => {
+        try {
+          callback(privateMessage);
+        } catch (error) {
+          console.error('Error in general private message callback:', error);
+        }
+      });
+    }
+  }
+
+  private handlePrivateTypingNotification(notification: any): void {
+    const { senderId, isTyping, senderName } = notification;
+    
+    // Notifier les callbacks pour ce contact
+    const typingKey = `private_typing_${senderId}`;
+    if (this.privateTypingCallbacks[typingKey]) {
+      this.privateTypingCallbacks[typingKey].forEach((callback) => {
+        try {
+          callback({ userId: senderId, isTyping, username: senderName || `User ${senderId}` });
+        } catch (error) {
+          console.error('Error in private typing callback:', error);
+        }
+      });
+    }
+  }
+
   private handleRoomMessage(
     roomId: number,
     message: MessageResponse
@@ -597,6 +839,8 @@ leaveRoom(roomId: number): void {
     this.subscriptions.clear();
     this.messageCallbacks = {};
     this.typingCallbacks = {};
+    this.privateMessageCallbacks = {};
+    this.privateTypingCallbacks = {};
   }
 }
 

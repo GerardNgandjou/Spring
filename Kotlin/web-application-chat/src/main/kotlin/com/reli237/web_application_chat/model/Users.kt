@@ -1,5 +1,6 @@
 package com.reli237.web_application_chat.model
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import jakarta.persistence.*
 import org.hibernate.annotations.CreationTimestamp
 import java.time.LocalDateTime
@@ -26,6 +27,7 @@ data class Users(
     val role: UserRole = UserRole.USER,
 
     @OneToMany(mappedBy = "user", cascade = [CascadeType.ALL])
+    @JsonIgnore  // ✅ EMPÊCHE la sérialisation de cette relation
     val chatParticipants: List<ChatParticipant> = mutableListOf()
 
 )
