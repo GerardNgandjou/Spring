@@ -65,23 +65,9 @@ class PrivateChatController(
     }
 
     @GetMapping("/private-chats")
-    fun getAllPrivateChats(): ResponseEntity<List<PrivateDto.PrivateChatResponse>> {  // ✅ BON
+    fun getAllPrivateChats(): ResponseEntity<List<PrivateDto.PrivateChatResponse>> {
         val chats = privateChatService.getAllPrivateChats()
-            .map { convertToResponse(it) }  // Convertir en DTO
         return ResponseEntity.ok(chats)
-    }
-
-    private fun convertToResponse(chat: PrivateChat): PrivateDto.PrivateChatResponse {
-        return PrivateDto.PrivateChatResponse(
-            id = chat.id,
-            senderId1 = chat.senderId1.id,  // Seulement l'ID, pas l'objet entier
-            senderId2 = chat.senderId2.id,
-            senderName1 = chat.senderId1.email,
-            senderName2 = chat.senderId2.email,
-            content = chat.content,
-            timestamp = chat.timestamp,
-            isRead = chat.isRead
-        )
     }
 
     @ExceptionHandler(IllegalArgumentException::class)

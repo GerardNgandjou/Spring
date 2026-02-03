@@ -1,5 +1,6 @@
 package com.reli237.web_application_chat.service
 
+import com.reli237.web_application_chat.dto.FileUploadDto
 import com.reli237.web_application_chat.dto.MessageDto
 import com.reli237.web_application_chat.dto.UserDto
 import com.reli237.web_application_chat.model.ChatRoom
@@ -9,17 +10,29 @@ import com.reli237.web_application_chat.repository.ChatRoomRepository
 import com.reli237.web_application_chat.repository.MessageRepository
 import com.reli237.web_application_chat.repository.UsersRepository
 import jakarta.persistence.EntityNotFoundException
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpEntity
+import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.util.LinkedMultiValueMap
+import org.springframework.util.MultiValueMap
+import org.springframework.web.client.RestTemplate
+import org.springframework.web.multipart.MultipartFile
 import java.time.LocalDateTime
-import java.util.concurrent.ConcurrentHashMap
 
 @Service
 @Transactional
 class MessageService(
     private val messageRepository: MessageRepository,
     private val chatRoomRepository: ChatRoomRepository,
-    private val usersRepository: UsersRepository
+    private val usersRepository: UsersRepository,
+
+    @Value("\${file.service.url:http://localhost:8080}")
+    private val fileServiceUrl: String,
+    private val chatFileStorageService: ChatFileStorageService
+
 
 //    private val typingUsers = ConcurrentHashMap<Long, MutableSet<Long>>(),
 //    private val messageReadStatus = ConcurrentHashMap<Long, MutableMap<Long, Long>>()
@@ -219,6 +232,93 @@ class MessageService(
     }
 
     /**
+     * Create a message with file attachment
+     */
+    /**
+     * Create message with file attachment
+     */
+    /**
+     * Create message with file attachment
+     */
+    @Transactional
+    fun createMessageWithFileAttachment(
+        userId: Long,
+        request: MessageDto.MessageCreateRequest,
+        file: MultipartFile?
+    ): MessageDto.MessageResponse {
+        var fileAttachment: MessageDto.FileAttachmentDto? = null
+
+        // Upload file if provided
+        if (file != null && !file.isEmpty) {
+            val fileMetadata = chatFileStorageService.uploadFile(
+                userId = userId,
+                file = file,
+                description = "Uploaded from chat",
+                chatRoomId = request.chatRoomId
+            )
+
+            fileAttachment = MessageDto.FileAttachmentDto(
+                fileId = fileMetadata.id,
+                fileName = fileMetadata.fileName,
+                fileType = fileMetadata.fileType,
+                fileSize = fileMetadata.fileSize.toLong(),
+                downloadUrl = fileMetadata.downloadUrl,
+                thumbnailUrl = fileMetadata.thumbnailUrl
+            )
+        }
+
+        // Create message with file attachment info
+        val messageRequest = if (fileAttachment != null) {
+            val fileReference = "[FILE:${fileAttachment.fileName}]"
+            val finalContent = if (request.content.isNotBlank()) {
+                "${request.content} $fileReference"
+            } else {
+                "Shared a file: ${fileAttachment.fileName}"
+            }
+
+            request.copy(
+                content = finalContent,
+                messageType = MessageType.FILE,
+                fileAttachment = fileAttachment
+            )
+        } else {
+            request
+        }
+
+        // Create the message entity
+        val messageEntity = createMessageEntity(userId, messageRequest)
+        val savedMessage = messageRepository.save(messageEntity)
+
+        // Return response with file attachment
+        return mapToMessageResponse(savedMessage).copy(
+            fileAttachment = fileAttachment
+        )
+    }
+
+    /**
+     * Get messages with file attachments for a room
+     */
+    fun getMessagesWithFiles(chatRoomId: Long): List<MessageDto.MessageResponse> {
+        return getMessagesByChatRoom(chatRoomId).filter { message ->
+            message.content.contains("[FILE:") || message.fileAttachment != null
+        }
+    }
+
+    /**
+     * Extract file attachments from messages
+     */
+    fun extractFileAttachments(messages: List<MessageDto.MessageResponse>): List<MessageDto.FileAttachmentDto> {
+        return messages.mapNotNull { it.fileAttachment }
+    }
+
+    /**
+     * Get download URL for file attachment
+     */
+    fun getFileDownloadUrl(fileId: Long): String {
+        return "$fileServiceUrl/download/$fileId"
+    }
+
+    /**
      * Map Message entity to MessageResponse DTO
      */
     private fun mapToMessageResponse(message: Message): MessageDto.MessageResponse {
@@ -267,6 +367,28 @@ class MessageService(
         return chatRoom
     }
 
+    private fun createMessageEntity(
+        userId: Long,
+        request: MessageDto.MessageCreateRequest
+    ): Message {
+        // Validate user
+        val user = usersRepository.findById(userId)
+            .orElseThrow { EntityNotFoundException("User not found with id: $userId") }
+
+        // Validate chat room
+        val chatRoom = chatRoomRepository.findById(request.chatRoomId)
+            .orElseThrow { EntityNotFoundException("Chat room not found with id: ${request.chatRoomId}") }
+
+        return Message(
+            id = 0,
+            content = request.content,
+            sender = user,
+            chatRoom = chatRoom,
+            timeStamp = LocalDateTime.now(),
+            messageType = request.messageType ?: MessageType.TEXT,
+            isDeleted = false
+        )
+    }
 
 
 }

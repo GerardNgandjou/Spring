@@ -82,8 +82,22 @@ class PrivateChatService(
         return messages.map { convertToResponse(it) }
     }
 
-    fun getAllPrivateChats(): List<PrivateChat> {
+    fun getAllPrivateChats(): List<PrivateDto.PrivateChatResponse> {
         return privateChatRepository.findAll()
+            .map { convertToResponseChat(it) }
+    }
+
+    private fun convertToResponseChat(chat: PrivateChat): PrivateDto.PrivateChatResponse {
+        return PrivateDto.PrivateChatResponse(
+            id = chat.id,
+            senderId1 = chat.senderId1.id,
+            senderId2 = chat.senderId2.id,
+            senderName1 = chat.senderId1.email,
+            senderName2 = chat.senderId2.email,
+            content = chat.content,
+            timestamp = chat.timestamp,
+            isRead = chat.isRead
+        )
     }
 
 

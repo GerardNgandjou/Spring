@@ -429,6 +429,190 @@ class WebChatController(
         privateChatService.markMessagesAsRead(userId, request)
     }
 
+    /**
+     * Handle file upload via WebSocket
+     * This is for small files only (WebSocket has message size limits)
+     */
+    @MessageMapping("/chat.room.{roomId}.files.upload")
+    fun handleFileUpload(
+        @DestinationVariable roomId: Long,
+        @Payload fileUpload: FileUploadDto,
+        @Header("userId") userId: Long,
+        principal: Principal
+    ) {
+        // Validate file data
+        if (fileUpload.fileData.isNullOrEmpty()) {
+            sendError(userId, "File data is empty")
+            return
+        }
+
+        // In a real implementation, you would:
+        // 1. Save file data temporarily
+        // 2. Forward to file service via REST
+        // 3. Get file metadata back
+        // 4. Create message with file reference
+
+        // For now, simulate file upload
+        val simulatedFileId = System.currentTimeMillis()
+
+        // Create notification
+        val fileNotification = FileUploadDto.FileUploadNotification(
+            uploadId = simulatedFileId,
+            fileName = fileUpload.fileName,
+            fileSize = fileUpload.fileData.length.toLong(),
+            fileType = fileUpload.fileType,
+            uploadedBy = userId,
+            roomId = roomId,
+            timestamp = LocalDateTime.now(),
+            status = "COMPLETED",
+            downloadUrl = "/api/chat/files/download/$simulatedFileId"
+        )
+
+        // Notify all users in the room
+        messagingTemplate.convertAndSend(
+            "/topic/room.$roomId.files",
+            fileNotification
+        )
+
+        // Notify the uploader specifically
+        messagingTemplate.convertAndSendToUser(
+            userId.toString(),
+            "/queue/files.upload",
+            fileNotification
+        )
+
+        // Create a chat message about the file
+        val messageContent = "[FILE UPLOADED] ${fileUpload.fileName}"
+        val messageRequest = MessageDto.MessageCreateRequest(
+            content = messageContent,
+            chatRoomId = roomId,
+            messageType = MessageDto.MessageType.FILE
+        )
+
+        // You would call messageService.createMessage here
+        // For now, just send a notification
+        val messageNotification = mapOf(
+            "type" to "FILE_UPLOAD",
+            "fileName" to fileUpload.fileName,
+            "uploaderId" to userId,
+            "timestamp" to System.currentTimeMillis(),
+            "downloadUrl" to "/api/chat/files/download/$simulatedFileId"
+        )
+
+        messagingTemplate.convertAndSend(
+            "/topic/room.$roomId.messages",
+            messageNotification
+        )
+    }
+
+    /**
+     * Subscribe to file upload notifications for a room
+     */
+    @SubscribeMapping("/topic/room.{roomId}.files")
+    fun subscribeToRoomFiles(@DestinationVariable roomId: Long): String {
+        return "Subscribed to file notifications for room $roomId"
+    }
+
+    /**
+     * Request file download via WebSocket
+     */
+    @MessageMapping("/chat.files.download.request")
+    fun handleFileDownloadRequest(
+        @Payload request: FileUploadDto.FileDownloadRequest,
+        principal: Principal
+    ) {
+        val fileId = request.fileId
+        val userId = principal.name.toLongOrNull() ?: 0L
+
+        // In a real implementation, you would:
+        // 1. Check if user has permission to download
+        // 2. Get file metadata from file service
+        // 3. Generate download URL/token
+
+        val downloadInfo = FileUploadDto.FileDownloadResponse(
+            fileId = fileId,
+            fileName = "file_$fileId.pdf", // Example
+            fileSize = 1024L, // Example size
+            downloadUrl = "/api/chat/files/download/$fileId",
+            expiresAt = LocalDateTime.now().plusHours(1),
+            requiresAuth = true
+        )
+
+        // Send download info to requesting user
+        messagingTemplate.convertAndSendToUser(
+            userId.toString(),
+            "/queue/files.download",
+            downloadInfo
+        )
+    }
+
+    /**
+     * Get file upload progress
+     */
+    @MessageMapping("/chat.files.upload.progress")
+    fun getUploadProgress(
+        @Payload request: FileUploadDto.UploadProgressRequest,
+        principal: Principal
+    ) {
+        val uploadId = request.uploadId
+        val userId = principal.name.toLongOrNull() ?: 0L
+
+        // In a real implementation, you would track upload progress
+        val progress = FileUploadDto.UploadProgressResponse(
+            uploadId = uploadId,
+            progress = 50, // Example: 50% complete
+            bytesUploaded = 512,
+            totalBytes = 1024,
+            estimatedTimeRemaining = 30 // seconds
+        )
+
+        messagingTemplate.convertAndSendToUser(
+            userId.toString(),
+            "/queue/files.progress",
+            progress
+        )
+    }
+
+    /**
+     * Cancel file upload
+     */
+    @MessageMapping("/chat.files.upload.cancel")
+    fun cancelFileUpload(
+        @Payload request: FileUploadDto.CancelUploadRequest,
+        principal: Principal
+    ) {
+        val uploadId = request.uploadId
+        val userId = principal.name.toLongOrNull() ?: 0L
+
+        // In a real implementation, you would cancel the upload process
+
+        val cancellation = mapOf(
+            "uploadId" to uploadId,
+            "cancelled" to true,
+            "timestamp" to System.currentTimeMillis()
+        )
+
+        messagingTemplate.convertAndSendToUser(
+            userId.toString(),
+            "/queue/files.cancelled",
+            cancellation
+        )
+    }
+
+    private fun sendError(userId: Long, message: String) {
+        val error = mapOf(
+            "error" to true,
+            "message" to message,
+            "timestamp" to System.currentTimeMillis()
+        )
+
+        messagingTemplate.convertAndSendToUser(
+            userId.toString(),
+            "/queue/errors",
+            error
+        )
+    }
+
     // ==================== DATA CLASSES ====================
 
     /**

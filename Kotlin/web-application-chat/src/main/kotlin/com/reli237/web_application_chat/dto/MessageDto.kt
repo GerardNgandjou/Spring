@@ -8,15 +8,26 @@ import java.io.Serializable
 class MessageDto {
 
     // Request DTOs
-    data class MessageCreateRequest(
-        val content: String,
-        var chatRoomId: Long,
-        val messageType: MessageType = MessageType.TEXT
-    )
-
     data class MessageUpdateRequest(
         val content: String? = null
     )
+
+    // Request DTOs
+    data class MessageCreateRequest(
+        val content: String,
+        var chatRoomId: Long,
+        val messageType: MessageType = MessageType.TEXT,
+        val fileAttachment: FileAttachmentDto? = null  // Add file attachment support
+    )
+
+    data class FileAttachmentDto(
+        val fileId: Long,
+        val fileName: String,
+        val fileType: String,
+        val fileSize: Long,
+        val downloadUrl: String,
+        val thumbnailUrl: String? = null
+    ) : Serializable
 
     // Response DTOs
     data class MessageResponse(
@@ -26,7 +37,8 @@ class MessageDto {
         val chatRoomId: Long,
         val timestamp: LocalDateTime,
         val messageType: MessageType,
-        val isDeleted: Boolean
+        val isDeleted: Boolean,
+        val fileAttachment: FileAttachmentDto? = null  // Add file attachment to response
     )
 
     data class MessageDetailResponse(

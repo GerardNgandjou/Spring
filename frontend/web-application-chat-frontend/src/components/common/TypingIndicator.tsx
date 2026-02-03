@@ -6,11 +6,11 @@ import { FiberManualRecord as FiberManualRecordIcon } from '@mui/icons-material'
 
 const bounce = keyframes`
   0%, 60%, 100% {
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
     opacity: 0.4;
   }
   30% {
-    transform: translateY(-10px);
+    transform: translateY(-12px) scale(1.2);
     opacity: 1;
   }
 `;
@@ -19,32 +19,40 @@ const pulse = keyframes`
   0% {
     transform: scale(1);
     opacity: 0.6;
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
   }
   50% {
-    transform: scale(1.1);
+    transform: scale(1.2);
     opacity: 1;
+    boxShadow: 0 0 0 6px rgba(76, 175, 80, 0);
   }
   100% {
     transform: scale(1);
     opacity: 0.6;
+    boxShadow: 0 0 0 0 rgba(76, 175, 80, 0);
   }
 `;
 
 const TypingContainer = styled(Box)(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
-  padding: theme.spacing(1, 2),
-  background: 'linear-gradient(135deg, rgba(245, 247, 250, 0.9) 0%, rgba(195, 207, 226, 0.9) 100%)',
-  backdropFilter: 'blur(10px)',
-  borderRadius: '24px',
+  padding: theme.spacing(1.5, 2.5),
+  background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 249, 250, 0.95) 100%)',
+  backdropFilter: 'blur(15px)',
+  borderRadius: '28px',
   maxWidth: 'fit-content',
-  border: '1px solid rgba(255, 255, 255, 0.2)',
-  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+  border: '1px solid rgba(255, 255, 255, 0.4)',
+  boxShadow: '0 15px 50px rgba(0, 0, 0, 0.15)',
+  animation: 'float 3s ease-in-out infinite',
+  '@keyframes float': {
+    '0%, 100%': { transform: 'translateY(0px)' },
+    '50%': { transform: 'translateY(-3px)' },
+  }
 }));
 
 const Dot = styled(Box)(({ theme }) => ({
-  width: 8,
-  height: 8,
+  width: 9,
+  height: 9,
   borderRadius: '50%',
   margin: '0 3px',
   position: 'relative',
@@ -75,10 +83,10 @@ const Dot = styled(Box)(({ theme }) => ({
 }));
 
 const UserPulse = styled(Box)(({ theme }) => ({
-  width: 4,
-  height: 4,
+  width: 6,
+  height: 6,
   borderRadius: '50%',
-  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+  background: 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)',
   marginRight: 8,
   animation: `${pulse} 1.5s infinite ease-in-out`,
 }));
@@ -99,11 +107,11 @@ const TypingIndicator: React.FC<TypingIndicatorProps> = ({ isTyping, userName })
           justifyContent: 'flex-start',
           mb: 3,
           px: 1,
-          animation: 'slideIn 0.3s ease-out',
+          animation: 'slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
           '@keyframes slideIn': {
             from: {
               opacity: 0,
-              transform: 'translateX(-20px)',
+              transform: 'translateX(-30px)',
             },
             to: {
               opacity: 1,
@@ -113,15 +121,15 @@ const TypingIndicator: React.FC<TypingIndicatorProps> = ({ isTyping, userName })
         }}
       >
         <TypingContainer>
-          <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
             {userName && (
               <>
                 <UserPulse />
                 <FiberManualRecordIcon 
                   sx={{ 
-                    fontSize: 8, 
+                    fontSize: 10, 
                     color: '#4caf50',
-                    filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.5))',
+                    filter: 'drop-shadow(0 0 6px rgba(76, 175, 80, 0.5))',
                     mr: 1,
                   }} 
                 />
@@ -129,7 +137,7 @@ const TypingIndicator: React.FC<TypingIndicatorProps> = ({ isTyping, userName })
             )}
           </Box>
           
-          <Box sx={{ display: 'flex', mr: userName ? 2 : 0 }}>
+          <Box sx={{ display: 'flex', mr: userName ? 2.5 : 0 }}>
             <Dot />
             <Dot />
             <Dot />
@@ -139,10 +147,11 @@ const TypingIndicator: React.FC<TypingIndicatorProps> = ({ isTyping, userName })
             <Typography 
               variant="caption" 
               sx={{ 
-                fontWeight: 600,
-                color: 'text.primary',
+                fontWeight: 700,
+                color: '#333',
                 fontSize: '0.85rem',
                 whiteSpace: 'nowrap',
+                textShadow: '0 1px 2px rgba(0,0,0,0.1)',
               }}
             >
               {userName} écrit...

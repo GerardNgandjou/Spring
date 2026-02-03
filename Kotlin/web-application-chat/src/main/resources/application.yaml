@@ -70,4 +70,11 @@ logging:
 jwt:
   secret: mySecretKeyForJWTTokenGenerationAndValidationPurposesOnly1234567890
   # Token expiration in milliseconds (1200 = 20minutes)
-  expiration: 1200
+  expiration: 86400
+
+# File Service Configuration
+file:
+  service:
+    url: http://localhost:8752  # API Gateway URL
+    upload-path: /upload
+    download-path: /download

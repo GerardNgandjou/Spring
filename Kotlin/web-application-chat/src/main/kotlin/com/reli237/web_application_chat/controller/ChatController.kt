@@ -2,6 +2,8 @@ package com.reli237.web_application_chat.controller
 
 import com.reli237.web_application_chat.dto.ChatParticipantDto
 import com.reli237.web_application_chat.dto.ChatRoomDto
+import com.reli237.web_application_chat.dto.FileUploadDto
+import com.reli237.web_application_chat.dto.FileUploadResponse
 import com.reli237.web_application_chat.dto.MessageDto
 import com.reli237.web_application_chat.model.ParticipantRole
 import com.reli237.web_application_chat.service.ChatParticipantService
@@ -10,7 +12,9 @@ import com.reli237.web_application_chat.service.MessageService
 import org.springframework.http.ResponseEntity
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.web.bind.annotation.*
+import org.springframework.web.multipart.MultipartFile
 import java.security.Principal
+import java.time.LocalDateTime
 
 @RestController
 @RequestMapping("/api/chat")
@@ -324,5 +328,45 @@ class ChatController (
 //        ))
 //    }
 
+    /**
+     * Create message with optional file attachment
+     */
+    @PostMapping("/messages/with-file")
+    fun createMessageWithFile(
+        @RequestHeader("X-User-Id") userId: Long,
+        @RequestPart("request") request: MessageDto.MessageCreateRequest,
+        @RequestPart(value = "file", required = false) file: MultipartFile?
+    ): ResponseEntity<MessageDto.MessageResponse> {
+        return ResponseEntity.ok(
+            messageService.createMessageWithFile(userId, request, file)
+        )
+    }
+
+    /**
+     * Upload file only (without creating a message)
+     */
+    @PostMapping("/files/upload")
+    fun uploadFile(
+        @RequestHeader("X-User-Id") userId: Long,
+        @RequestParam("file") file: MultipartFile
+    ): ResponseEntity<FileUploadDto.FileUploadResponse> {
+        val fileId = messageService.uploadFileToFileService(userId, file)
+
+        return if (fileId != null) {
+            val downloadUrl = messageService.getFileDownloadUrl(fileId)
+            ResponseEntity.ok(
+                FileUploadDto.FileUploadResponse(
+                    uploadId = fileId,
+                    fileName = file.originalFilename ?: "unknown",
+                    fileSize = file.size,
+                    timestamp = LocalDateTime.now(),
+                    downloadUrl = downloadUrl,
+//                    status =
+                )
+            )
+        } else {
+            ResponseEntity.status(500).build()
+        }
+    }
 
 }

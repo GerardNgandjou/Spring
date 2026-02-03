@@ -7,6 +7,47 @@ spring:
         locator:
           enabled: true
           lower-case-service-id: true
+  routes:
+    # File Service API routes
+    - id: file-service-api
+      uri: lb://SYSTEMMANAGERFILE
+      predicates:
+        - Path=/api/files/**, /upload, /download/**
+      filters:
+        # For file uploads, preserve multipart/form-data
+        - name: ModifyRequestBody
+          args:
+            inClass: org.springframework.core.io.buffer.DefaultDataBufferFactory
+            outClass: org.springframework.core.io.buffer.DefaultDataBufferFactory
+            rewriteFunction: "T(org.springframework.cloud.gateway.filter.factory.rewrite.ModifyRequestBodyGatewayFilterFactory).toBytes()"
+        - RewritePath=/api/files/(?<segment>.*), /api/files/$\{segment}
+
+    # Chat Service REST API
+    - id: chat-service-rest
+      uri: lb://WEB-APPLICATION-CHAT
+      predicates:
+        - Path=/api/chat/**, /api/auth/**, /api/users/**
+      filters:
+        - RewritePath=/api/(?<segment>.*), /api/$\{segment}
+
+    # Chat Service WebSocket
+    - id: chat-service-websocket
+      uri: lb:ws://WEB-APPLICATION-CHAT
+      predicates:
+        - Path=/ws-chat/**
+
+    # Chat File Uploads (direct to chat service)
+    - id: chat-file-upload
+      uri: lb://WEB-APPLICATION-CHAT
+      predicates:
+        - Path=/api/chat/files/upload
+      filters:
+        - name: CircuitBreaker
+          args:
+            name: chatFileUpload
+            fallbackUri: forward:/fallback/chat-file-upload
+
+#    discovery: { locator: { enabled: true, lower-case-service-id: true } }
 
 server:
   port: 8752

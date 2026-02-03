@@ -1,5 +1,6 @@
 // src/pages/OneToOnePage.tsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
   Drawer,
@@ -12,19 +13,26 @@ import {
   IconButton,
   Tab,
   Tabs,
-  alpha,
-  Badge,
-  Fade,
+  Chip,
+  Divider,
+  Button,
   Paper,
+  Container,
+  Stack,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
   Search as SearchIcon,
   Chat as ChatIcon,
   PersonAdd as PersonAddIcon,
+  Menu as MenuIcon,
   Wifi as WifiIcon,
   WifiOff as WifiOffIcon,
-  Menu as MenuIcon,
+  Info as InfoIcon,
+  EmojiEmotions as EmojiEmotionsIcon,
+  Lock as LockIcon,
+  Bolt as BoltIcon,
+  Shield as ShieldIcon,
 } from '@mui/icons-material';
 import ChatHeader from '../components/common/ChatHeader';
 import ContactList from '../components/common/ContactList';
@@ -38,20 +46,19 @@ import SearchBar from '../components/common/SearchBar';
 import { chatWebSocket } from '../services/chatWebsocket';
 
 // Constantes
-const DRAWER_WIDTH = 360;
+const DRAWER_WIDTH = 320;
 
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })<{
   open?: boolean;
 }>(({ theme, open }) => ({
   flexGrow: 1,
-  transition: theme.transitions.create(['margin', 'width'], {
+  transition: theme.transitions.create('margin', {
     easing: theme.transitions.easing.sharp,
     duration: theme.transitions.duration.leavingScreen,
   }),
   marginLeft: `-${DRAWER_WIDTH}px`,
-  width: `calc(100% + ${DRAWER_WIDTH}px)`,
   ...(open && {
-    transition: theme.transitions.create(['margin', 'width'], {
+    transition: theme.transitions.create('margin', {
       easing: theme.transitions.easing.easeOut,
       duration: theme.transitions.duration.enteringScreen,
     }),
@@ -59,70 +66,107 @@ const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })<{
   }),
 }));
 
-const GlassDrawer = styled(Drawer)(({ theme }) => ({
-  '& .MuiDrawer-paper': {
-    backdropFilter: 'blur(20px)',
-    backgroundColor: alpha(theme.palette.background.paper, 0.85),
-    borderRight: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-  },
-}));
+// Fonction pour formater les dates comme WhatsApp/Telegram
+const formatDateForGroup = (dateString: string): string => {
+  try {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
-const FloatingHeader = styled(Box)(({ theme }) => ({
-  position: 'sticky',
-  top: 0,
-  zIndex: 10,
-  backdropFilter: 'blur(20px)',
-  backgroundColor: alpha(theme.palette.background.paper, 0.9),
-  borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-  padding: theme.spacing(2, 3),
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-}));
+    if (isNaN(date.getTime())) {
+      return 'Date inconnue';
+    }
 
-const GradientTabs = styled(Tabs)(({ theme }) => ({
-  '& .MuiTabs-indicator': {
-    background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
-    borderRadius: '4px 4px 0 0',
-    height: 3,
-  },
-  '& .MuiTab-root': {
-    textTransform: 'none',
-    fontWeight: 600,
-    fontSize: '0.95rem',
-    minHeight: 48,
-    color: theme.palette.text.secondary,
-    '&.Mui-selected': {
-      color: theme.palette.primary.main,
-    },
-  },
-}));
+    // Réinitialiser les heures pour la comparaison
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const yesterdayStart = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+    const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
-const MessageArea = styled(Box)(({ theme }) => ({
-  flexGrow: 1,
-  overflowY: 'auto',
-  padding: theme.spacing(3, 4),
-  background: 'radial-gradient(circle at 50% 0%, rgba(120, 119, 198, 0.1) 0%, rgba(255, 255, 255, 0) 50%)',
-  '&::-webkit-scrollbar': {
-    width: '8px',
-  },
-  '&::-webkit-scrollbar-track': {
-    background: alpha(theme.palette.primary.main, 0.1),
-    borderRadius: '4px',
-  },
-  '&::-webkit-scrollbar-thumb': {
-    background: alpha(theme.palette.primary.main, 0.3),
-    borderRadius: '4px',
-    '&:hover': {
-      background: alpha(theme.palette.primary.main, 0.5),
-    },
-  },
-}));
+    // Aujourd'hui
+    if (dateStart.getTime() === todayStart.getTime()) {
+      return "Aujourd'hui";
+    } 
+    // Hier
+    else if (dateStart.getTime() === yesterdayStart.getTime()) {
+      return 'Hier';
+    }
+    // Cette semaine (les 7 derniers jours)
+    const weekAgo = new Date(today);
+    weekAgo.setDate(today.getDate() - 7);
+    if (date > weekAgo) {
+      return date.toLocaleDateString('fr-FR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      });
+    }
+    
+    // Cette année
+    if (date.getFullYear() === today.getFullYear()) {
+      return date.toLocaleDateString('fr-FR', {
+        day: 'numeric',
+        month: 'long'
+      });
+    }
+    
+    // Plus ancien
+    return date.toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  } catch (error) {
+    console.error('Error formatting date for grouping:', error);
+    return 'Date';
+  }
+};
+
+// Fonction pour grouper les messages par date
+const groupMessagesByDate = (messages: PrivateChatMessage[]): { date: string; messages: PrivateChatMessage[] }[] => {
+  // Trier les messages par date croissante (plus ancien en premier)
+  const sortedMessages = [...messages].sort((a, b) => {
+    const dateA = new Date(a.timestamp);
+    const dateB = new Date(b.timestamp);
+    return dateA.getTime() - dateB.getTime();
+  });
+
+  const groups: { [key: string]: PrivateChatMessage[] } = {};
+  
+  sortedMessages.forEach(message => {
+    const dateKey = new Date(message.timestamp).toDateString();
+    
+    if (!groups[dateKey]) {
+      groups[dateKey] = [];
+    }
+    groups[dateKey].push(message);
+  });
+
+  // Trier les groupes par date (plus ancien en premier)
+  return Object.entries(groups)
+    .map(([dateKey, msgs]) => ({
+      date: formatDateForGroup(msgs[0].timestamp),
+      messages: msgs
+    }))
+    .sort((a, b) => {
+      const dateA = new Date(a.messages[0].timestamp);
+      const dateB = new Date(b.messages[0].timestamp);
+      return dateA.getTime() - dateB.getTime();
+    });
+};
 
 const OneToOnePage: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { id: idParam } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+
+  // ID provenant de l'URL  /one-to-one/:id  (null si absent)
+  const contactIdFromUrl = idParam ? Number(idParam) : null;
+
+  // Ref utilisée pour passer l'ID cible à loadContacts sans déclencher un re-render
+  const pendingContactIdRef = useRef<number | null>(contactIdFromUrl);
+
   const [mobileOpen, setMobileOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(!isMobile);
   const [activeTab, setActiveTab] = useState<'chats' | 'users'>('chats');
@@ -137,7 +181,9 @@ const OneToOnePage: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [typingUser, setTypingUser] = useState<string>('');
   const [webSocketConnected, setWebSocketConnected] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(true);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [hasLoadedMessages, setHasLoadedMessages] = useState(false);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   
   // Récupérer l'ID de l'utilisateur courant
   const getCurrentUserId = (): number => {
@@ -168,27 +214,32 @@ const OneToOnePage: React.FC = () => {
       setCurrentUserId(userId);
       
       const response = await oneToOneApi.getUserContacts(userId);
-      // Ajouter un statut online simulé pour le design
+      // Ajouter un statut online simulé
       const contactsWithOnline = response.data.map(contact => ({
         ...contact,
-        online: Math.random() > 0.5, // À remplacer par votre logique réelle
+        online: Math.random() > 0.5,
       }));
       setContacts(contactsWithOnline);
-      
-      // Sélectionner le premier contact par défaut
-      if (response.data.length > 0 && !selectedContact) {
+
+      // Si un ID cible existe (URL ou navigation en cours), sélectionner ce contact
+      if (pendingContactIdRef.current !== null) {
+        const target = contactsWithOnline.find(c => c.userId === pendingContactIdRef.current);
+        if (target) {
+          setSelectedContact(target);
+          setHasLoadedMessages(false);
+        }
+        pendingContactIdRef.current = null; // consommé
+      } else if (!isMobile && contactsWithOnline.length > 0 && !selectedContact) {
+        // Comportement par défaut sur desktop : premier contact
         setSelectedContact(contactsWithOnline[0]);
       }
-      
-      // Cacher le message de bienvenue après le chargement
-      setTimeout(() => setShowWelcome(false), 2000);
     } catch (err: any) {
       setError('Erreur lors du chargement des contacts');
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [selectedContact]);
+  }, [selectedContact, isMobile]);
   
   // Charger les messages avec un contact
   const loadMessages = useCallback(async (contactId: number) => {
@@ -196,6 +247,14 @@ const OneToOnePage: React.FC = () => {
       const userId = getCurrentUserId();
       const response = await oneToOneApi.getChatBetweenUsers(userId, contactId);
       setMessages(response.data);
+      setHasLoadedMessages(true);
+      
+      // Afficher le message de bienvenue seulement lors du premier chargement
+      if (response.data.length === 0) {
+        setShowWelcome(true);
+      } else {
+        setShowWelcome(false);
+      }
       
       // Faire défiler vers le bas après le chargement
       setTimeout(() => {
@@ -217,6 +276,9 @@ const OneToOnePage: React.FC = () => {
       
       // Ajouter le message à la liste
       setMessages(prev => [...prev, response.data]);
+      
+      // Masquer le message de bienvenue après le premier message
+      setShowWelcome(false);
       
       // Mettre à jour le dernier message dans la liste des contacts
       setContacts(prev =>
@@ -288,7 +350,10 @@ const OneToOnePage: React.FC = () => {
     const contact = contacts.find(c => c.userId === contactId);
     if (contact) {
       setSelectedContact(contact);
+      setShowWelcome(true);
+      setHasLoadedMessages(false);
       loadMessages(contactId);
+      navigate(`/one-to-one/${contactId}`);   // sync URL
       
       if (isMobile) {
         setMobileOpen(false);
@@ -296,17 +361,57 @@ const OneToOnePage: React.FC = () => {
     }
   };
   
-  // Gérer la sélection d'un utilisateur (pour nouvelle conversation)
+  // Fermer le chat
+  const handleCloseChat = () => {
+    setSelectedContact(null);
+    setMessages([]);
+    setShowWelcome(false);
+    navigate('/one-to-one');   // retour à la vue sans chat sélectionné
+  };
+  
+  // Gérer le menu contextuel du chat
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleMenuAction = (action: string) => {
+    switch (action) {
+      case 'close':
+        handleCloseChat();
+        break;
+      case 'clear':
+        // Option pour effacer l'historique
+        setMessages([]);
+        break;
+      case 'block':
+        // Option pour bloquer l'utilisateur
+        alert(`Bloquer ${selectedContact?.username}`);
+        break;
+      case 'delete':
+        // Option pour supprimer la conversation
+        if (window.confirm('Voulez-vous vraiment supprimer cette conversation ?')) {
+          handleCloseChat();
+          setContacts(prev => prev.filter(c => c.userId !== selectedContact?.userId));
+        }
+        break;
+    }
+    handleMenuClose();
+  };
+  
+  // Gérer la sélection d'un utilisateur
   const handleSelectUser = (user: User) => {
-    // Vérifier si une conversation existe déjà
     const existingContact = contacts.find(c => c.userId === user.id);
     
     if (existingContact) {
-      // Sélectionner le contact existant
       setSelectedContact(existingContact);
+      setShowWelcome(true);
+      setHasLoadedMessages(false);
       loadMessages(user.id);
     } else {
-      // Créer un nouveau contact
       const newContact: Contact = {
         userId: user.id,
         username: user.email,
@@ -318,14 +423,17 @@ const OneToOnePage: React.FC = () => {
       
       setContacts(prev => [...prev, newContact]);
       setSelectedContact(newContact);
-      setMessages([]); // Pas encore de messages
+      setMessages([]);
+      setShowWelcome(true);
+      setHasLoadedMessages(false);
     }
+    
+    navigate(`/one-to-one/${user.id}`);   // sync URL
     
     if (isMobile) {
       setMobileOpen(false);
     }
     
-    // Revenir à l'onglet des discussions
     setActiveTab('chats');
   };
   
@@ -359,7 +467,6 @@ const OneToOnePage: React.FC = () => {
       return;
     }
     
-    // Configurer les callbacks WebSocket
     const connectionUnsubscribe = chatWebSocket.onConnectionChange((connected) => {
       setWebSocketConnected(connected);
       console.log(`WebSocket connection: ${connected ? 'connected' : 'disconnected'}`);
@@ -370,7 +477,6 @@ const OneToOnePage: React.FC = () => {
       console.error('WebSocket error:', errorMessage);
     });
     
-    // S'abonner aux messages privés du contact sélectionné
     let privateMessageUnsubscribe: () => void = () => {};
     
     if (selectedContact) {
@@ -379,10 +485,9 @@ const OneToOnePage: React.FC = () => {
         (message) => {
           console.log('Private message received from service:', message);
           
-          // Ajouter le message à la liste
           setMessages(prev => [...prev, message]);
+          setShowWelcome(false);
           
-          // Mettre à jour le dernier message dans les contacts
           setContacts(prev =>
             prev.map(contact =>
               contact.userId === selectedContact.userId
@@ -402,7 +507,6 @@ const OneToOnePage: React.FC = () => {
       );
     }
     
-    // S'abonner aux notifications de frappe du contact sélectionné
     let privateTypingUnsubscribe: () => void = () => {};
     
     if (selectedContact) {
@@ -415,11 +519,9 @@ const OneToOnePage: React.FC = () => {
       );
     }
     
-    // Se connecter au WebSocket
     chatWebSocket.connect(token, userId);
     
     return () => {
-      // Nettoyer les abonnements
       connectionUnsubscribe();
       errorUnsubscribe();
       privateMessageUnsubscribe();
@@ -431,14 +533,32 @@ const OneToOnePage: React.FC = () => {
   useEffect(() => {
     loadContacts();
   }, [loadContacts]);
+
+  // Réagir aux changements de :id dans l'URL (navigation externe ou back/forward)
+  useEffect(() => {
+    if (contactIdFromUrl === null) return; // pas de :id dans l'URL
+
+    // Si les contacts sont déjà chargés, sélectionner directement
+    if (contacts.length > 0) {
+      const target = contacts.find(c => c.userId === contactIdFromUrl);
+      if (target && target.userId !== selectedContact?.userId) {
+        setSelectedContact(target);
+        setShowWelcome(true);
+        setHasLoadedMessages(false);
+      }
+    } else {
+      // Contacts pas encore chargés → stocker pour que loadContacts les honore
+      pendingContactIdRef.current = contactIdFromUrl;
+    }
+  }, [contactIdFromUrl, contacts, selectedContact?.userId]);
   
   // Charger les messages quand un contact est sélectionné
   useEffect(() => {
-    if (selectedContact) {
+    if (selectedContact && !hasLoadedMessages) {
       loadMessages(selectedContact.userId);
       markMessagesAsRead();
     }
-  }, [selectedContact, loadMessages, markMessagesAsRead]);
+  }, [selectedContact, loadMessages, markMessagesAsRead, hasLoadedMessages]);
   
   // Faire défiler vers le bas quand de nouveaux messages arrivent
   useEffect(() => {
@@ -447,14 +567,24 @@ const OneToOnePage: React.FC = () => {
   
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
-    if (!isMobile) {
-      setDrawerOpen(!drawerOpen);
-    }
   };
   
   const handleDrawerClose = () => {
     setMobileOpen(false);
   };
+  
+  // Obtenir les initiales pour l'avatar
+  const getInitials = (name: string) => {
+    if (!name) return '?';
+    return name
+      .split(' ')
+      .map(part => part.charAt(0).toUpperCase())
+      .join('')
+      .slice(0, 2);
+  };
+  
+  // Grouper les messages par date
+  const groupedMessages = groupMessagesByDate(messages);
   
   if (loading && !selectedContact) {
     return (
@@ -467,43 +597,20 @@ const OneToOnePage: React.FC = () => {
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         }}
       >
-        <Fade in={loading}>
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress 
-              size={60} 
-              thickness={4}
-              sx={{ 
-                color: 'white',
-                mb: 3,
-                animation: 'pulse 2s infinite',
-                '@keyframes pulse': {
-                  '0%': { opacity: 1 },
-                  '50%': { opacity: 0.5 },
-                  '100%': { opacity: 1 },
-                }
-              }} 
-            />
-            <Typography variant="h6" color="white" fontWeight="600">
-              Chargement des conversations...
-            </Typography>
-            <Typography variant="body2" color="rgba(255,255,255,0.8)" sx={{ mt: 1 }}>
-              Préparation de votre espace de discussion
-            </Typography>
-          </Box>
-        </Fade>
+        <CircularProgress 
+          size={60}
+          sx={{ 
+            color: 'white',
+          }} 
+        />
       </Box>
     );
   }
   
   return (
-    <Box sx={{ 
-      display: 'flex', 
-      height: '100vh', 
-      overflow: 'hidden',
-      background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-    }}>
+    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* Drawer pour la liste des contacts */}
-      <GlassDrawer
+      <Drawer
         variant={isMobile ? 'temporary' : 'persistent'}
         open={isMobile ? mobileOpen : drawerOpen}
         onClose={handleDrawerClose}
@@ -513,122 +620,167 @@ const OneToOnePage: React.FC = () => {
           '& .MuiDrawer-paper': {
             width: DRAWER_WIDTH,
             boxSizing: 'border-box',
+            borderRight: '1px solid',
+            borderColor: 'divider',
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
           },
         }}
       >
-        <FloatingHeader>
+        {/* En-tête du drawer */}
+        <Box sx={{ 
+          p: 2, 
+          borderBottom: '1px solid', 
+          borderColor: 'divider',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(10px)',
+        }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <IconButton 
-              onClick={handleDrawerToggle}
-              sx={{
-                display: { xs: 'flex', md: 'none' },
-                backgroundColor: alpha(theme.palette.primary.main, 0.1),
-                '&:hover': {
-                  backgroundColor: alpha(theme.palette.primary.main, 0.2),
-                }
-              }}
-            >
-              <MenuIcon />
-            </IconButton>
-            <Typography variant="h5" fontWeight="700">
+            {isMobile && (
+              <IconButton 
+                onClick={handleDrawerToggle} 
+                size="small"
+                sx={{
+                  '&:hover': {
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                  }
+                }}
+              >
+                <MenuIcon />
+              </IconButton>
+            )}
+            <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#333' }}>
               Messages
             </Typography>
-            <Badge
-              badgeContent={contacts.reduce((sum, contact) => sum + contact.unreadCount, 0)}
-              color="error"
-              sx={{ ml: 1 }}
-            />
           </Box>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <IconButton 
+              size="small" 
               onClick={() => setSearchMode(!searchMode)}
+              color={searchMode ? 'primary' : 'default'}
               sx={{
-                backgroundColor: searchMode ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
                 '&:hover': {
-                  backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                  backgroundColor: 'rgba(102, 126, 234, 0.1)',
                 }
               }}
             >
               <SearchIcon />
             </IconButton>
-            <Box sx={{ display: 'flex', alignItems: 'center', color: webSocketConnected ? '#4caf50' : '#f44336' }}>
-              {webSocketConnected ? <WifiIcon fontSize="small" /> : <WifiOffIcon fontSize="small" />}
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              color: webSocketConnected ? '#4caf50' : '#9e9e9e',
+              transition: 'color 0.3s',
+            }}>
+              {webSocketConnected ? (
+                <WifiIcon fontSize="small" />
+              ) : (
+                <WifiOffIcon fontSize="small" />
+              )}
             </Box>
           </Box>
-        </FloatingHeader>
+        </Box>
         
         {/* Onglets */}
-        <Box sx={{ px: 2, pt: 2 }}>
-          <GradientTabs 
+        <Box sx={{ 
+          borderBottom: 1, 
+          borderColor: 'divider', 
+          px: 2, 
+          pt: 1,
+          background: 'rgba(255, 255, 255, 0.8)',
+        }}>
+          <Tabs 
             value={activeTab} 
             onChange={(_, newValue) => setActiveTab(newValue)}
             variant="fullWidth"
+            sx={{
+              '& .MuiTabs-indicator': {
+                backgroundColor: '#667eea',
+                height: 3,
+                borderRadius: '3px',
+              }
+            }}
           >
             <Tab 
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ChatIcon fontSize="small" />
-                  <span>Discussions</span>
-                  <Box
-  sx={{
-    ml: 1,
-    minWidth: 20,
-    height: 20,
-    px: 0.8,
-    borderRadius: '10px',
-    backgroundColor: 'error.main',
-    color: 'white',
-    fontSize: '0.75rem',
-    fontWeight: 'bold',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  }}
->
-  {contacts.reduce((sum, c) => sum + c.unreadCount, 0)}
-</Box>
-
-                </Box>
-              } 
+              label="Discussions" 
               value="chats" 
+              icon={<ChatIcon />}
+              iconPosition="start"
+              sx={{ 
+                minHeight: 48,
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                color: activeTab === 'chats' ? '#667eea' : 'text.secondary',
+                '&:hover': {
+                  color: '#667eea',
+                }
+              }}
             />
             <Tab 
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <PersonAddIcon fontSize="small" />
-                  <span>Nouveau</span>
-                </Box>
-              } 
+              label="Nouveau" 
               value="users" 
+              icon={<PersonAddIcon />}
+              iconPosition="start"
+              sx={{ 
+                minHeight: 48,
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                color: activeTab === 'users' ? '#667eea' : 'text.secondary',
+                '&:hover': {
+                  color: '#667eea',
+                }
+              }}
             />
-          </GradientTabs>
+          </Tabs>
         </Box>
         
-        {/* Barre de recherche */}
-        {searchMode && activeTab === 'chats' && (
-          <Box sx={{ p: 2, pt: 1 }}>
-            <SearchBar
-              messages={messages}
-              contacts={contacts}
-              currentUserId={currentUserId}
-              onResultClick={handleSearchResultClick}
-            />
-          </Box>
-        )}
-        
-        {/* Compteur de contacts */}
-        {!searchMode && activeTab === 'chats' && (
-          <Box sx={{ px: 2, pb: 1 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ opacity: 0.7 }}>
-              {contacts.length} contact{contacts.length !== 1 ? 's' : ''} 
-              {contacts.some(c => c.online) && ` • ${contacts.filter(c => c.online).length} en ligne`}
+        {/* Barre de recherche ou statistiques */}
+        <Box sx={{ 
+          p: 2, 
+          pb: 1,
+          background: 'rgba(255, 255, 255, 0.8)',
+          backdropFilter: 'blur(10px)',
+        }}>
+          {activeTab === 'chats' ? (
+            searchMode ? (
+              <SearchBar
+                messages={messages}
+                contacts={contacts}
+                currentUserId={currentUserId}
+                onResultClick={handleSearchResultClick}
+              />
+            ) : (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="body2" color="text.secondary">
+                  {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
+                </Typography>
+                {contacts.some(c => c.online) && (
+                  <Chip
+                    label={`${contacts.filter(c => c.online).length} en ligne`}
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                    sx={{
+                      borderColor: '#4caf50',
+                      color: '#4caf50',
+                      fontWeight: 600,
+                    }}
+                  />
+                )}
+              </Box>
+            )
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Sélectionnez un utilisateur pour démarrer une conversation
             </Typography>
-          </Box>
-        )}
+          )}
+        </Box>
         
         {/* Contenu principal du drawer */}
-        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        <Box sx={{ flex: 1, overflow: 'auto' }}>
           {activeTab === 'chats' ? (
             <ContactList
               contacts={contacts}
@@ -647,54 +799,143 @@ const OneToOnePage: React.FC = () => {
             />
           )}
         </Box>
-      </GlassDrawer>
+      </Drawer>
       
       {/* Zone de chat principale */}
       <Main open={drawerOpen}>
+        {/* Header */}
+        <ChatHeader
+          contactName={selectedContact?.username || ''}
+          online={selectedContact?.online}
+          onBack={isMobile ? handleDrawerToggle : undefined}
+          onClose={selectedContact ? handleCloseChat : undefined}
+          onMenuAction={handleMenuAction}
+          unreadCount={selectedContact?.unreadCount}
+          connectionStatus={webSocketConnected}
+          showChat={!!selectedContact}
+          onNewChat={() => setActiveTab('users')}
+        />
+        
         {selectedContact ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            {/* En-tête du chat */}
-            <ChatHeader
-              contactName={selectedContact.username}
-              onBack={isMobile ? handleDrawerToggle : undefined}
-              unreadCount={selectedContact.unreadCount}
-              connectionStatus={webSocketConnected}
-              online={selectedContact.online}
-              onVideoCall={() => console.log('Video call clicked')}
-              onVoiceCall={() => console.log('Voice call clicked')}
-            />
-            
+          <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 72px)' }}>
             {/* Zone des messages */}
-            <MessageArea ref={messagesContainerRef}>
-              {showWelcome && (
-                <Fade in={showWelcome}>
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 3,
-                      mb: 3,
-                      borderRadius: 3,
-                      background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
-                      border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
-                      textAlign: 'center',
-                    }}
-                  >
-                    <Typography variant="h6" color="primary" fontWeight="600" gutterBottom>
-                      👋 Bienvenue dans votre chat !
+            <Box
+              ref={messagesContainerRef}
+              sx={{
+                flexGrow: 1,
+                overflowY: 'auto',
+                p: 2,
+                background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+                '&::-webkit-scrollbar': {
+                  width: '8px',
+                },
+                '&::-webkit-scrollbar-track': {
+                  background: 'rgba(0, 0, 0, 0.05)',
+                  borderRadius: '4px',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  background: 'rgba(102, 126, 234, 0.3)',
+                  borderRadius: '4px',
+                  '&:hover': {
+                    background: 'rgba(102, 126, 234, 0.5)',
+                  }
+                }
+              }}
+            >
+              {/* Message de bienvenue */}
+              {showWelcome && messages.length === 0 && (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: '60vh',
+                    textAlign: 'center',
+                    px: 2,
+                    animation: 'fadeIn 0.5s ease-out',
+                    '@keyframes fadeIn': {
+                      from: { opacity: 0, transform: 'translateY(20px)' },
+                      to: { opacity: 1, transform: 'translateY(0)' },
+                    }
+                  }}
+                >
+                  <Box sx={{ 
+                    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%)',
+                    borderRadius: 3,
+                    p: 4,
+                    boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
+                    maxWidth: 400,
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  }}>
+                    <EmojiEmotionsIcon 
+                      sx={{ 
+                        fontSize: 50, 
+                        color: '#667eea',
+                        mb: 2,
+                      }} 
+                    />
+                    <Typography variant="h6" fontWeight="700" gutterBottom color="#333">
+                      Commencez la conversation
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Commencez à discuter avec {selectedContact.username}
+                      Envoyez votre premier message à {selectedContact.username.split('@')[0]}
                     </Typography>
-                  </Paper>
-                </Fade>
+                    <Divider sx={{ my: 3 }} />
+                    <Box sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 1,
+                      mt: 2,
+                    }}>
+                      <InfoIcon color="action" />
+                      <Typography variant="body2" color="text.secondary">
+                        Cette conversation est chiffrée de bout en bout
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
               )}
               
-              {messages.map((message) => (
-                <OneToOneMessage
-                  key={message.id}
-                  message={message}
-                  currentUserId={currentUserId}
-                />
+              {/* Liste des messages avec séparateurs de date */}
+              {groupedMessages.map((group, groupIndex) => (
+                <Box key={groupIndex}>
+                  {/* Séparateur de date - Style WhatsApp/Telegram */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      my: 3,
+                    }}
+                  >
+                    <Chip
+                      label={group.date}
+                      size="small"
+                      sx={{
+                        bgcolor: 'rgba(0, 0, 0, 0.1)',
+                        color: 'rgba(0, 0, 0, 0.7)',
+                        fontWeight: 600,
+                        fontSize: '0.7rem',
+                        px: 2,
+                        py: 0.5,
+                        borderRadius: 2,
+                        backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                      }}
+                    />
+                  </Box>
+                  
+                  {/* Messages pour cette date */}
+                  {group.messages.map((message, messageIndex) => (
+                    <OneToOneMessage
+                      key={message.id || messageIndex}
+                      message={message}
+                      currentUserId={currentUserId}
+                    />
+                  ))}
+                </Box>
               ))}
               
               <TypingIndicator
@@ -703,14 +944,14 @@ const OneToOnePage: React.FC = () => {
               />
               
               <div ref={messagesEndRef} />
-            </MessageArea>
+            </Box>
             
             {/* Input pour écrire des messages */}
             <Box sx={{ 
               p: 2, 
-              borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-              backdropFilter: 'blur(10px)',
-              backgroundColor: alpha(theme.palette.background.paper, 0.8),
+              borderTop: '1px solid',
+              borderColor: 'divider',
+              background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
             }}>
               <OneToOneMessageInput
                 onSendMessage={handleSendMessage}
@@ -722,108 +963,304 @@ const OneToOnePage: React.FC = () => {
             </Box>
           </Box>
         ) : (
+          // Page par défaut comme WhatsApp/Telegram quand aucun chat n'est sélectionné
           <Box
             sx={{
+              height: 'calc(100% - 72px)',
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'center',
               alignItems: 'center',
-              height: '100%',
+              justifyContent: 'center',
               p: 3,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: 'white',
-              textAlign: 'center',
+              background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+              overflow: 'hidden',
+              position: 'relative',
             }}
           >
-            <Fade in={true}>
-              <Box sx={{ maxWidth: 480 }}>
-                <Typography 
-                  variant="h2" 
-                  fontWeight="800" 
-                  gutterBottom
+            {/* Background pattern */}
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                opacity: 0.03,
+                backgroundImage: `radial-gradient(#667eea 1px, transparent 1px)`,
+                backgroundSize: '40px 40px',
+              }}
+            />
+            
+            <Container maxWidth="md">
+              <Stack spacing={4} alignItems="center">
+                {/* Logo/Illustration principale */}
+                <Box
                   sx={{
-                    fontSize: { xs: '2.5rem', md: '3.5rem' },
-                    background: 'linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.8) 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    mb: 3,
+                    width: { xs: 200, sm: 240, md: 280 },
+                    height: { xs: 200, sm: 240, md: 280 },
+                    position: 'relative',
+                    animation: 'float 6s ease-in-out infinite',
+                    '@keyframes float': {
+                      '0%, 100%': { transform: 'translateY(0px)' },
+                      '50%': { transform: 'translateY(-20px)' },
+                    }
                   }}
                 >
-                  Chat Privé
-                </Typography>
-                
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
-                    mb: 3, 
-                    opacity: 0.9,
-                    fontWeight: 400,
-                  }}
-                >
-                  Sélectionnez une conversation pour commencer à discuter
-                </Typography>
-                
-                <Typography 
-                  variant="body1" 
-                  sx={{ 
-                    mb: 4, 
-                    opacity: 0.7,
-                  }}
-                >
-                  Ou créez une nouvelle conversation depuis l'onglet "Nouveau"
-                </Typography>
-                
-                {!webSocketConnected && (
-                  <Alert 
-                    severity="warning" 
-                    sx={{ 
-                      mt: 2,
-                      backgroundColor: alpha('#ff9800', 0.2),
-                      color: 'white',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      backdropFilter: 'blur(10px)',
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      width: '100%',
+                      height: '100%',
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      boxShadow: '0 40px 80px rgba(102, 126, 234, 0.4)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
                   >
-                    Connexion WebSocket en cours...
-                  </Alert>
-                )}
-                
-                <Box sx={{ 
-                  display: 'flex', 
-                  gap: 2, 
-                  mt: 4,
-                  justifyContent: 'center',
-                }}>
-                  <Box sx={{ 
-                    p: 2, 
-                    borderRadius: 2,
-                    backgroundColor: alpha('#ffffff', 0.1),
-                    backdropFilter: 'blur(10px)',
-                    textAlign: 'center',
-                    flex: 1,
-                  }}>
-                    <ChatIcon sx={{ fontSize: 40, mb: 1 }} />
-                    <Typography variant="body2">
-                      {contacts.length} discussion{contacts.length !== 1 ? 's' : ''}
-                    </Typography>
+                    <ChatIcon 
+                      sx={{ 
+                        fontSize: { xs: 80, sm: 100, md: 120 }, 
+                        color: 'white',
+                      }} 
+                    />
                   </Box>
                   
-                  <Box sx={{ 
-                    p: 2, 
-                    borderRadius: 2,
-                    backgroundColor: alpha('#ffffff', 0.1),
-                    backdropFilter: 'blur(10px)',
-                    textAlign: 'center',
-                    flex: 1,
-                  }}>
-                    <PersonAddIcon sx={{ fontSize: 40, mb: 1 }} />
-                    <Typography variant="body2">
-                      Nouveaux contacts
-                    </Typography>
-                  </Box>
+                  {/* Animated rings */}
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      width: '130%',
+                      height: '130%',
+                      borderRadius: '50%',
+                      border: '2px solid rgba(102, 126, 234, 0.1)',
+                      animation: 'pulse-ring 3s infinite',
+                    }}
+                  />
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      width: '160%',
+                      height: '160%',
+                      borderRadius: '50%',
+                      border: '2px solid rgba(102, 126, 234, 0.05)',
+                      animation: 'pulse-ring 4s infinite 0.5s',
+                    }}
+                  />
                 </Box>
-              </Box>
-            </Fade>
+
+                {/* Titre et description */}
+                <Stack spacing={2} alignItems="center" textAlign="center">
+                  <Typography
+                    variant="h3"
+                    fontWeight="800"
+                    sx={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      fontSize: { xs: '2rem', sm: '2.5rem', md: '3rem' },
+                    }}
+                  >
+                    Chat Privé
+                  </Typography>
+                  
+                  <Typography
+                    variant="h6"
+                    color="text.secondary"
+                    sx={{
+                      maxWidth: 600,
+                      fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
+                    }}
+                  >
+                    Discutez en privé avec vos contacts en toute sécurité
+                  </Typography>
+                </Stack>
+
+                {/* Features grid */}
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={3}
+                  sx={{ mt: 4, width: '100%', maxWidth: 800 }}
+                >
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      flex: 1,
+                      p: 3,
+                      borderRadius: 3,
+                      background: 'rgba(255, 255, 255, 0.7)',
+                      backdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      textAlign: 'center',
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        transform: 'translateY(-8px)',
+                        boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+                      }
+                    }}
+                  >
+                    <LockIcon 
+                      sx={{ 
+                        fontSize: 40, 
+                        color: '#667eea',
+                        mb: 2,
+                      }} 
+                    />
+                    <Typography variant="h6" fontWeight="700" gutterBottom>
+                      Chiffrement
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Messages chiffrés de bout en bout pour une confidentialité maximale
+                    </Typography>
+                  </Paper>
+
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      flex: 1,
+                      p: 3,
+                      borderRadius: 3,
+                      background: 'rgba(255, 255, 255, 0.7)',
+                      backdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      textAlign: 'center',
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        transform: 'translateY(-8px)',
+                        boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+                      }
+                    }}
+                  >
+                    <BoltIcon 
+                      sx={{ 
+                        fontSize: 40, 
+                        color: '#667eea',
+                        mb: 2,
+                      }} 
+                    />
+                    <Typography variant="h6" fontWeight="700" gutterBottom>
+                      Instantané
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Messages délivrés en temps réel avec notifications instantanées
+                    </Typography>
+                  </Paper>
+
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      flex: 1,
+                      p: 3,
+                      borderRadius: 3,
+                      background: 'rgba(255, 255, 255, 0.7)',
+                      backdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      textAlign: 'center',
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        transform: 'translateY(-8px)',
+                        boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+                      }
+                    }}
+                  >
+                    <ShieldIcon 
+                      sx={{ 
+                        fontSize: 40, 
+                        color: '#667eea',
+                        mb: 2,
+                      }} 
+                    />
+                    <Typography variant="h6" fontWeight="700" gutterBottom>
+                      Sécurisé
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Vos conversations restent privées et protégées
+                    </Typography>
+                  </Paper>
+                </Stack>
+
+                {/* CTA Button */}
+                <Stack spacing={2} sx={{ mt: 4 }} alignItems="center">
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<PersonAddIcon />}
+                    onClick={() => setActiveTab('users')}
+                    sx={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      color: 'white',
+                      fontWeight: 'bold',
+                      fontSize: '1.1rem',
+                      px: 4,
+                      py: 1.5,
+                      borderRadius: 3,
+                      boxShadow: '0 10px 30px rgba(102, 126, 234, 0.4)',
+                      '&:hover': {
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 15px 40px rgba(102, 126, 234, 0.6)',
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    Nouvelle Conversation
+                  </Button>
+                  
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                    Sélectionnez une conversation dans la liste à gauche ou créez-en une nouvelle
+                  </Typography>
+                </Stack>
+
+                {/* Stats */}
+                <Stack
+                  direction="row"
+                  spacing={4}
+                  sx={{ 
+                    mt: 6,
+                    pt: 3,
+                    borderTop: '1px solid',
+                    borderColor: 'divider',
+                    opacity: 0.8,
+                  }}
+                >
+                  <Stack alignItems="center">
+                    <Typography variant="h4" fontWeight="800" color="#667eea">
+                      {contacts.length}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Contacts
+                    </Typography>
+                  </Stack>
+                  
+                  <Stack alignItems="center">
+                    <Typography variant="h4" fontWeight="800" color="#4caf50">
+                      {contacts.filter(c => c.online).length}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      En ligne
+                    </Typography>
+                  </Stack>
+                  
+                  <Stack alignItems="center">
+                    <Typography variant="h4" fontWeight="800" color="#ff9800">
+                      {contacts.reduce((sum, c) => sum + c.unreadCount, 0)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Non lus
+                    </Typography>
+                  </Stack>
+                </Stack>
+              </Stack>
+            </Container>
           </Box>
         )}
       </Main>
@@ -840,11 +1277,8 @@ const OneToOnePage: React.FC = () => {
           severity="error" 
           sx={{ 
             width: '100%',
-            backdropFilter: 'blur(20px)',
-            backgroundColor: alpha(theme.palette.error.main, 0.9),
-            color: 'white',
             borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(244, 67, 54, 0.3)',
+            backdropFilter: 'blur(10px)',
           }}
         >
           {error}

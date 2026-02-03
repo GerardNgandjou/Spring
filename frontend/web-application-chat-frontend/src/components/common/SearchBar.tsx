@@ -109,11 +109,16 @@ const SearchBar: React.FC<SearchBarProps> = ({
               key={index}
               component="span"
               sx={{
-                backgroundColor: theme => alpha(theme.palette.primary.main, 0.2),
-                color: 'primary.main',
+                backgroundColor: alpha('#667eea', 0.2),
+                color: '#667eea',
                 fontWeight: 'bold',
                 padding: '0 2px',
                 borderRadius: 1,
+                animation: 'highlight 0.3s ease',
+                '@keyframes highlight': {
+                  from: { backgroundColor: 'transparent', color: 'inherit' },
+                  to: { backgroundColor: alpha('#667eea', 0.2), color: '#667eea' },
+                }
               }}
             >
               {part}
@@ -134,6 +139,17 @@ const SearchBar: React.FC<SearchBarProps> = ({
       .slice(0, 2);
   };
 
+  const getGradientColor = (index: number) => {
+    const gradients = [
+      'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+      'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+      'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+      'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+    ];
+    return gradients[index % gradients.length];
+  };
+
   return (
     <Box sx={{ position: 'relative', width: '100%' }}>
       <Paper
@@ -142,20 +158,23 @@ const SearchBar: React.FC<SearchBarProps> = ({
           display: 'flex',
           alignItems: 'center',
           borderRadius: '50px',
-          backgroundColor: theme => alpha(theme.palette.background.paper, 0.8),
-          backdropFilter: 'blur(10px)',
-          border: '1px solid',
-          borderColor: isFocused ? 'primary.main' : 'divider',
+          background: isFocused 
+            ? 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 249, 250, 0.95) 100%)'
+            : 'linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(240, 242, 245, 0.9) 100%)',
+          backdropFilter: 'blur(20px)',
+          border: '2px solid',
+          borderColor: isFocused ? '#667eea' : 'rgba(255, 255, 255, 0.3)',
           boxShadow: isFocused 
-            ? '0 8px 32px rgba(0, 0, 0, 0.1)' 
-            : '0 4px 20px rgba(0, 0, 0, 0.05)',
-          transition: 'all 0.3s ease',
+            ? '0 20px 60px rgba(102, 126, 234, 0.3)' 
+            : '0 10px 40px rgba(0, 0, 0, 0.1)',
+          transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
         <IconButton 
           sx={{ 
             p: '10px',
-            color: isFocused ? 'primary.main' : 'text.secondary'
+            color: isFocused ? '#667eea' : '#666',
+            transition: 'color 0.3s ease',
           }}
         >
           <SearchIcon />
@@ -165,6 +184,11 @@ const SearchBar: React.FC<SearchBarProps> = ({
             ml: 1, 
             flex: 1,
             fontSize: '0.95rem',
+            fontWeight: 500,
+            color: '#333',
+            '&::placeholder': {
+              color: '#999',
+            }
           }}
           placeholder="Rechercher des messages ou contacts..."
           value={searchQuery}
@@ -177,8 +201,10 @@ const SearchBar: React.FC<SearchBarProps> = ({
             onClick={handleClear}
             sx={{
               '&:hover': {
-                backgroundColor: theme => alpha(theme.palette.primary.main, 0.1),
-              }
+                backgroundColor: alpha('#667eea', 0.1),
+                transform: 'rotate(90deg)',
+              },
+              transition: 'all 0.3s ease',
             }}
           >
             <ClearIcon />
@@ -190,44 +216,51 @@ const SearchBar: React.FC<SearchBarProps> = ({
         <Paper
           sx={{
             position: 'absolute',
-            top: 'calc(100% + 8px)',
+            top: 'calc(100% + 12px)',
             left: 0,
             right: 0,
             maxHeight: 400,
             overflowY: 'auto',
             zIndex: 1000,
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-            borderRadius: '16px',
-            backgroundColor: theme => alpha(theme.palette.background.paper, 0.95),
-            backdropFilter: 'blur(20px)',
+            boxShadow: '0 30px 80px rgba(0, 0, 0, 0.3)',
+            borderRadius: '20px',
+            background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 249, 250, 0.98) 100%)',
+            backdropFilter: 'blur(30px)',
             border: '1px solid',
-            borderColor: 'divider',
+            borderColor: 'rgba(255, 255, 255, 0.4)',
+            animation: 'slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            '@keyframes slideDown': {
+              from: { opacity: 0, transform: 'translateY(-10px)' },
+              to: { opacity: 1, transform: 'translateY(0)' },
+            },
             '&::-webkit-scrollbar': {
               width: '8px',
             },
             '&::-webkit-scrollbar-track': {
-              background: theme => alpha(theme.palette.primary.main, 0.1),
+              background: alpha('#667eea', 0.05),
               borderRadius: '4px',
             },
             '&::-webkit-scrollbar-thumb': {
-              background: theme => alpha(theme.palette.primary.main, 0.3),
+              background: alpha('#667eea', 0.3),
               borderRadius: '4px',
               '&:hover': {
-                background: theme => alpha(theme.palette.primary.main, 0.5),
+                background: alpha('#667eea', 0.5),
               }
             }
           }}
         >
-          <Box sx={{ p: 1 }}>
+          <Box sx={{ p: 1.5 }}>
             <Chip
               label={`${results.length} résultat${results.length > 1 ? 's' : ''}`}
               size="small"
               icon={<TagFacesIcon />}
               sx={{ 
                 mb: 1,
-                backgroundColor: 'primary.main',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 color: 'white',
                 fontWeight: 'bold',
+                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                animation: 'fadeIn 0.5s ease',
               }}
             />
           </Box>
@@ -244,13 +277,22 @@ const SearchBar: React.FC<SearchBarProps> = ({
                     onClick={() => handleResultClick(result)}
                     sx={{
                       '&:hover': { 
-                        backgroundColor: theme => alpha(theme.palette.primary.main, 0.08),
+                        background: isContact 
+                          ? 'linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%)'
+                          : 'linear-gradient(135deg, rgba(245, 87, 108, 0.08) 0%, rgba(240, 147, 251, 0.08) 100%)',
                         transform: 'translateX(4px)',
-                        transition: 'all 0.2s ease',
+                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                       },
-                      borderRadius: '12px',
-                      mx: 1,
+                      borderRadius: '16px',
+                      mx: 1.5,
                       mb: 0.5,
+                      py: 1.5,
+                      animation: 'slideIn 0.3s ease',
+                      animationDelay: `${index * 0.05}s`,
+                      '@keyframes slideIn': {
+                        from: { opacity: 0, transform: 'translateX(-20px)' },
+                        to: { opacity: 1, transform: 'translateX(0)' },
+                      }
                     }}
                   >
                     <ListItemAvatar>
@@ -258,12 +300,16 @@ const SearchBar: React.FC<SearchBarProps> = ({
                         sx={{
                           width: 44,
                           height: 44,
-                          bgcolor: isContact 
-                            ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                          background: isContact 
+                            ? getGradientColor(index)
                             : 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
                           color: 'white',
                           fontWeight: 'bold',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                          boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            transform: 'scale(1.1)',
+                          }
                         }}
                       >
                         {isContact
@@ -280,11 +326,20 @@ const SearchBar: React.FC<SearchBarProps> = ({
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           {isContact ? (
-                            <PersonIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                            <PersonIcon sx={{ 
+                              fontSize: 16, 
+                              color: '#667eea',
+                              animation: 'bounce 2s infinite',
+                            }} />
                           ) : (
-                            <MessageIcon sx={{ fontSize: 16, color: 'secondary.main' }} />
+                            <MessageIcon sx={{ 
+                              fontSize: 16, 
+                              color: '#f5576c',
+                              animation: 'bounce 2s infinite',
+                              animationDelay: '0.5s',
+                            }} />
                           )}
-                          <Typography variant="subtitle2" fontWeight={600}>
+                          <Typography variant="subtitle2" fontWeight={700} color="#333">
                             {highlightText(
                               isContact
                                 ? contactData!.username
@@ -301,10 +356,11 @@ const SearchBar: React.FC<SearchBarProps> = ({
                               height: 20,
                               fontSize: '0.7rem',
                               fontWeight: 'bold',
-                              backgroundColor: isContact 
+                              background: isContact 
                                 ? alpha('#667eea', 0.1)
                                 : alpha('#f5576c', 0.1),
                               color: isContact ? '#667eea' : '#f5576c',
+                              border: 'none',
                             }}
                           />
                         </Box>
@@ -312,7 +368,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
                       secondary={
                         <Typography
                           variant="body2"
-                          color="text.secondary"
+                          color="#666"
                           sx={{
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -321,6 +377,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
                             WebkitBoxOrient: 'vertical',
                             mt: 0.5,
                             fontSize: '0.875rem',
+                            lineHeight: 1.4,
                           }}
                         >
                           {highlightText(
@@ -338,7 +395,9 @@ const SearchBar: React.FC<SearchBarProps> = ({
                     <Divider 
                       sx={{ 
                         mx: 2, 
-                        opacity: 0.2,
+                        opacity: 0.1,
+                        background: 'linear-gradient(to right, transparent, #667eea, transparent)',
+                        height: '1px',
                       }} 
                     />
                   )}

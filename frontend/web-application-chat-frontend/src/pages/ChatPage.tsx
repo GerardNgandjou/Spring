@@ -1,4 +1,4 @@
-// src/pages/ChatPage.tsx - VERSION CORRIGÉE AVEC GESTION DES DATES ET CHRONOLOGIE
+// src/pages/ChatPage.tsx - VERSION AMÉLIORÉE AVEC BOUTON POUR AFFICHER/MASQUER LA LISTE DES PARTICIPANTS
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,6 +36,8 @@ import {
   ListItemIcon,
   useTheme,
   useMediaQuery,
+  Card,
+  CardContent,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -50,7 +52,18 @@ import {
   Reply as ReplyIcon,
   Check as CheckIcon,
   DoneAll as DoneAllIcon,
+  Message as MessageIcon,
+  Person as PersonIcon,
+  AdminPanelSettings as AdminIcon,
+  Visibility as VisibilityIcon,
+  Block as BlockIcon,
+  People as PeopleIcon,
+  PeopleOutlined as PeopleOutlinedIcon,
+  ChevronRight as ChevronRightIcon,
 } from '@mui/icons-material';
+// Option 2: Separate imports
+import EmailIcon from '@mui/icons-material/Email';
+import CalendarIcon from '@mui/icons-material/CalendarToday';
 import LockIcon from '@mui/icons-material/Lock';
 import { chatWebSocket } from '../services/chatWebsocket';
 import { type MessageResponse } from '../types';
@@ -252,6 +265,16 @@ const ChatPage: React.FC = () => {
   } | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<number, number>>({});
+  
+  // Nouvelles fonctionnalités
+  const [selectedParticipant, setSelectedParticipant] = useState<ChatParticipant | null>(null);
+  const [showParticipantDialog, setShowParticipantDialog] = useState(false);
+  const [isUserParticipant, setIsUserParticipant] = useState(false);
+  const [userRooms, setUserRooms] = useState<ChatParticipant[]>([]);
+  const [canCreateRoom, setCanCreateRoom] = useState(false);
+  
+  // Nouvel état pour afficher/masquer la liste des participants
+  const [showParticipantsSidebar, setShowParticipantsSidebar] = useState(true);
 
   // Corriger le mapping des dates depuis la BDD
   const mapMessageResponseToMessage = (dto: MessageResponse): Message => {
@@ -280,6 +303,44 @@ const ChatPage: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ==================== VÉRIFIER LES PERMISSIONS DE L'UTILISATEUR ====================
+  useEffect(() => {
+    const checkUserPermissions = async () => {
+      if (!user) return;
+      
+      // Vérifier si l'utilisateur est admin
+      setCanCreateRoom(user.role === 'ADMIN');
+      
+      // Charger les salons de l'utilisateur
+      try {
+        const response = await chatApi.getRoomsForUser(user.id);
+        setUserRooms(response.data || []);
+      } catch (error) {
+        console.error('Error loading user rooms:', error);
+      }
+    };
+    
+    checkUserPermissions();
+  }, [user]);
+
+  // ==================== VÉRIFIER SI L'UTILISATEUR EST PARTICIPANT DU SALON ====================
+  useEffect(() => {
+    const checkIfUserIsParticipant = () => {
+      if (!currentRoom || !user) {
+        setIsUserParticipant(false);
+        return;
+      }
+      
+      const isParticipant = userRooms.some(participant => 
+        participant.chatRoomId === currentRoom.id
+      );
+      
+      setIsUserParticipant(isParticipant);
+    };
+    
+    checkIfUserIsParticipant();
+  }, [currentRoom, user, userRooms]);
 
   // ==================== LOAD ROOMS ON MOUNT ====================
   useEffect(() => {
@@ -374,7 +435,6 @@ const ChatPage: React.FC = () => {
   }, [token, user?.id]);
 
   // ==================== SELECT ROOM ====================
- // ==================== SELECT ROOM ====================
   const selectRoom = async (room: ChatRoom) => {
     try {
       console.log('🎯 Selecting room:', room.id, room.name);
@@ -534,6 +594,12 @@ const ChatPage: React.FC = () => {
       return;
     }
 
+    // Vérifier si l'utilisateur est participant
+    if (!isUserParticipant) {
+      toast.error('Vous devez être participant pour envoyer des messages');
+      return;
+    }
+
     const messageContent = newMessage.trim();
     setNewMessage('');
 
@@ -617,6 +683,12 @@ const ChatPage: React.FC = () => {
       return;
     }
 
+    // Vérifier si l'utilisateur est admin
+    if (!canCreateRoom) {
+      toast.error('Seuls les administrateurs peuvent créer des salons');
+      return;
+    }
+
     try {
       const response = await chatApi.createChatRoom({
         name: newRoomName.trim(),
@@ -640,6 +712,37 @@ const ChatPage: React.FC = () => {
     } catch (error) {
       console.error('❌ Error creating room:', error);
       toast.error('Erreur lors de la création du salon');
+    }
+  };
+
+  // ==================== GESTION DES PARTICIPANTS ====================
+  const handleViewParticipantDetails = (participant: ChatParticipant) => {
+    setSelectedParticipant(participant);
+    setShowParticipantDialog(true);
+  };
+
+  const handleStartPrivateChat = (participant: ChatParticipant) => {
+    if (!participant.user) {
+      toast.error('Impossible de démarrer un chat privé');
+      return;
+    }
+    
+    // Naviguer vers la page de chat privé
+    navigate(`/private-chat/${participant.user.id}`);
+  };
+
+  const formatDate = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('fr-FR', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'Date inconnue';
     }
   };
 
@@ -856,6 +959,100 @@ const ChatPage: React.FC = () => {
         </Alert>
       </Snackbar>
 
+      {/* DIALOG DÉTAILS PARTICIPANT */}
+      <Dialog
+        open={showParticipantDialog}
+        onClose={() => setShowParticipantDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        {selectedParticipant && (
+          <>
+            <DialogTitle>
+              <Box display="flex" alignItems="center" gap={2}>
+                <Avatar
+                  sx={{
+                    width: 60,
+                    height: 60,
+                    bgcolor: getAvatarColor(selectedParticipant.userId),
+                  }}
+                >
+                  {getInitials(selectedParticipant.user?.email)}
+                </Avatar>
+                <Box>
+                  <Typography variant="h6">
+                    {selectedParticipant.user?.email?.split('@')[0] || `User ${selectedParticipant.userId}`}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {selectedParticipant.user?.email}
+                  </Typography>
+                </Box>
+              </Box>
+            </DialogTitle>
+            
+            <DialogContent>
+              <Card variant="outlined" sx={{ mb: 2 }}>
+                <CardContent>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Informations du participant
+                  </Typography>
+                  
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <PersonIcon fontSize="small" color="action" />
+                      <Typography variant="body2">
+                        ID: {selectedParticipant.userId}
+                      </Typography>
+                    </Box>
+                    
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <EmailIcon fontSize="small" color="action" />
+                      <Typography variant="body2">
+                        {selectedParticipant.user?.email}
+                      </Typography>
+                    </Box>
+                    
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <AdminIcon fontSize="small" color="action" />
+                      <Typography variant="body2">
+                        Rôle: {selectedParticipant.role}
+                      </Typography>
+                    </Box>
+                    
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <CalendarIcon fontSize="small" color="action" />
+                      <Typography variant="body2">
+                        Rejoint le: {formatDate(selectedParticipant.joinedAt)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+              
+              {selectedParticipant.user && selectedParticipant.userId !== user.id && (
+                <Button
+                  fullWidth
+                  variant="contained"
+                  startIcon={<MessageIcon />}
+                  onClick={() => {
+                    handleStartPrivateChat(selectedParticipant);
+                    setShowParticipantDialog(false);
+                  }}
+                >
+                  Discuter en privé
+                </Button>
+              )}
+            </DialogContent>
+            
+            <DialogActions>
+              <Button onClick={() => setShowParticipantDialog(false)}>
+                Fermer
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+
       <Box sx={{ display: 'flex', width: '100%', height: '100%' }}>
         {/* ROOMS SIDEBAR DESKTOP */}
         <Paper
@@ -879,11 +1076,13 @@ const ChatPage: React.FC = () => {
                     {isWsConnected ? <WifiIcon /> : <WifiOffIcon />}
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Nouveau salon">
-                  <IconButton size="small" onClick={() => setShowNewRoomDialog(true)}>
-                    <AddIcon />
-                  </IconButton>
-                </Tooltip>
+                {canCreateRoom && (
+                  <Tooltip title="Nouveau salon">
+                    <IconButton size="small" onClick={() => setShowNewRoomDialog(true)}>
+                      <AddIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </Box>
             </Box>
 
@@ -904,40 +1103,40 @@ const ChatPage: React.FC = () => {
           </Box>
 
           {/* Rooms List */}
-          
-          {/* Rooms List */}
-            <Box sx={{ 
-              flex: 1, 
-              overflow: 'auto',
-              '&::-webkit-scrollbar': {
-                width: '6px',
+          <Box sx={{ 
+            flex: 1, 
+            overflow: 'auto',
+            '&::-webkit-scrollbar': {
+              width: '6px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'transparent',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              backgroundColor: 'rgba(0, 0, 0, 0.1)',
+              borderRadius: '3px',
+              '&:hover': {
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
               },
-              '&::-webkit-scrollbar-track': {
-                background: 'transparent',
-              },
-              '&::-webkit-scrollbar-thumb': {
-                backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                borderRadius: '3px',
-                '&:hover': {
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                },
-              },
-              scrollbarWidth: 'thin',
-              scrollbarColor: 'rgba(0, 0, 0, 0.1) transparent',
-            }}>
-              {isLoadingRooms ? (
-                <Box display="flex" alignItems="center" justifyContent="center" p={3}>
-                  <CircularProgress />
-                </Box>
-              ) : filteredRooms.length === 0 ? (
-                <Box display="flex" alignItems="center" justifyContent="center" p={3}>
-                  <Typography color="text.secondary" variant="body2">
-                    {searchQuery ? 'Aucun salon trouvé' : 'Aucun salon disponible'}
-                  </Typography>
-                </Box>
-              ) : (
-                <List sx={{ p: 0 }}>
-                  {filteredRooms.map((room) => (
+            },
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'rgba(0, 0, 0, 0.1) transparent',
+          }}>
+            {isLoadingRooms ? (
+              <Box display="flex" alignItems="center" justifyContent="center" p={3}>
+                <CircularProgress />
+              </Box>
+            ) : filteredRooms.length === 0 ? (
+              <Box display="flex" alignItems="center" justifyContent="center" p={3}>
+                <Typography color="text.secondary" variant="body2">
+                  {searchQuery ? 'Aucun salon trouvé' : 'Aucun salon disponible'}
+                </Typography>
+              </Box>
+            ) : (
+              <List sx={{ p: 0 }}>
+                {filteredRooms.map((room) => {
+                  const isUserInRoom = userRooms.some(p => p.chatRoomId === room.id);
+                  return (
                     <ListItemButton
                       key={room.id}
                       selected={currentRoom?.id === room.id}
@@ -952,6 +1151,7 @@ const ChatPage: React.FC = () => {
                             bgcolor: 'action.selected',
                           },
                         },
+                        opacity: isUserInRoom ? 1 : 0.6,
                       }}
                     >
                       <ListItemAvatar>
@@ -968,9 +1168,14 @@ const ChatPage: React.FC = () => {
                       </ListItemAvatar>
                       <ListItemText
                         primary={
-                          <Typography variant="subtitle1" fontWeight={unreadCounts[room.id] ? 700 : 500}>
-                            {room.name}
-                          </Typography>
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="subtitle1" fontWeight={unreadCounts[room.id] ? 700 : 500}>
+                              {room.name}
+                            </Typography>
+                            {!isUserInRoom && (
+                              <VisibilityIcon fontSize="small" color="action" />
+                            )}
+                          </Box>
                         }
                         secondary={
                           <Box display="flex" alignItems="center" gap={1}>
@@ -984,15 +1189,21 @@ const ChatPage: React.FC = () => {
                         }
                       />
                     </ListItemButton>
-                  ))}
-                </List>
-              )}
-            </Box>
-
+                  );
+                })}
+              </List>
+            )}
+          </Box>
         </Paper>
 
         {/* CHAT AREA */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ 
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden',
+          position: 'relative',
+        }}>
           {currentRoom ? (
             <>
               {/* Chat Header */}
@@ -1025,17 +1236,36 @@ const ChatPage: React.FC = () => {
                     <Typography variant="caption" color="text.secondary">
                       {participants.length} participant{participants.length > 1 ? 's' : ''}
                       {typingUsers.size > 0 && ' • en train d\'écrire...'}
+                      {!isUserParticipant && ' • Lecture seule'}
                     </Typography>
                   </Box>
                 </Box>
                 <Box display="flex" gap={1} alignItems="center">
-                  {/* Debug info */}
+                  {/* Bouton pour afficher/masquer les participants (mobile) */}
+                  <IconButton
+                    sx={{ display: { xs: 'flex', md: 'none' } }}
+                    onClick={() => setShowParticipantsDrawer(true)}
+                  >
+                    <PeopleIcon />
+                  </IconButton>
+                  
+                  {/* Bouton pour afficher/masquer les participants (desktop) */}
+                  <Tooltip title={showParticipantsSidebar ? "Masquer les participants" : "Afficher les participants"}>
+                    <IconButton
+                      sx={{ display: { xs: 'none', md: 'flex' } }}
+                      onClick={() => setShowParticipantsSidebar(!showParticipantsSidebar)}
+                    >
+                      {showParticipantsSidebar ? <PeopleIcon /> : <PeopleOutlinedIcon />}
+                    </IconButton>
+                  </Tooltip>
+                  
                   <Tooltip title={`Connecté en tant que: ${user?.email} (ID: ${user?.id})`}>
                     <Chip 
-                      label={`User: ${user?.id}`} 
+                      label={`${user?.role === 'ADMIN' ? 'Admin' : 'User'}: ${user?.id}`} 
                       size="small" 
-                      color="primary"
+                      color={user?.role === 'ADMIN' ? 'secondary' : 'primary'}
                       variant="outlined"
+                      icon={user?.role === 'ADMIN' ? <AdminIcon /> : <PersonIcon />}
                     />
                   </Tooltip>
                   <Tooltip title={isWsConnected ? 'Connecté' : 'Déconnecté'}>
@@ -1043,97 +1273,95 @@ const ChatPage: React.FC = () => {
                       {isWsConnected ? <WifiIcon /> : <WifiOffIcon />}
                     </IconButton>
                   </Tooltip>
-                  <IconButton onClick={() => setShowParticipantsDrawer(true)}>
-                    <GroupIcon />
-                  </IconButton>
                 </Box>
               </Paper>
 
               {/* Messages Area */}
-              
-              {/* Messages Area */}
-                <Box
-                  sx={{
-                    flex: 1,
-                    overflow: 'auto',
-                    bgcolor: 'background.default',
-                    backgroundImage: 'linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)',
-                    backgroundSize: '20px 20px',
-                    // Ajouter un défilement personnalisé
-                    '&::-webkit-scrollbar': {
-                      width: '8px',
-                      height: '8px',
+              <Box
+                sx={{
+                  flex: 1,
+                  overflow: 'auto',
+                  bgcolor: 'background.default',
+                  backgroundImage: 'linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)',
+                  backgroundSize: '20px 20px',
+                  // Ajouter un défilement personnalisé
+                  '&::-webkit-scrollbar': {
+                    width: '8px',
+                    height: '8px',
+                  },
+                  '&::-webkit-scrollbar-track': {
+                    background: 'transparent',
+                  },
+                  '&::-webkit-scrollbar-thumb': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                    borderRadius: '4px',
+                    '&:hover': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
                     },
-                    '&::-webkit-scrollbar-track': {
-                      background: 'transparent',
-                    },
-                    '&::-webkit-scrollbar-thumb': {
-                      backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                      borderRadius: '4px',
-                      '&:hover': {
-                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                      },
-                    },
-                    // Pour Firefox
-                    scrollbarWidth: 'thin',
-                    scrollbarColor: 'rgba(0, 0, 0, 0.2) transparent',
-                  }}
-                >
-                  {isLoading ? (
-                    <Box display="flex" alignItems="center" justifyContent="center" height="100%">
-                      <CircularProgress />
-                    </Box>
-                  ) : messages.length === 0 ? (
-                    <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100%" gap={2}>
-                      <Avatar sx={{ width: 80, height: 80, bgcolor: 'primary.light' }}>
-                        <GroupIcon sx={{ fontSize: 40 }} />
-                      </Avatar>
-                      <Typography variant="h6" color="text.secondary">
-                        Aucun message pour le moment
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Soyez le premier à envoyer un message !
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Box sx={{ py: 2, minHeight: '100%' }}>
-                      {groupMessagesByDate(messages).map((group, groupIndex) => (
-                        <Box key={groupIndex}>
-                          {/* Date Separator - Sticky comme WhatsApp */}
-                          <Box
+                  },
+                  // Pour Firefox
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: 'rgba(0, 0, 0, 0.2) transparent',
+                }}
+              >
+                {isLoading ? (
+                  <Box display="flex" alignItems="center" justifyContent="center" height="100%">
+                    <CircularProgress />
+                  </Box>
+                ) : messages.length === 0 ? (
+                  <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100%" gap={2}>
+                    <Avatar sx={{ width: 80, height: 80, bgcolor: 'primary.light' }}>
+                      <GroupIcon sx={{ fontSize: 40 }} />
+                    </Avatar>
+                    <Typography variant="h6" color="text.secondary">
+                      {isUserParticipant ? 'Aucun message pour le moment' : 'Salon en lecture seule'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {isUserParticipant 
+                        ? 'Soyez le premier à envoyer un message !'
+                        : 'Vous devez être participant pour envoyer des messages'
+                      }
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Box sx={{ py: 2, minHeight: '100%' }}>
+                    {groupMessagesByDate(messages).map((group, groupIndex) => (
+                      <Box key={groupIndex}>
+                        {/* Date Separator - Sticky comme WhatsApp */}
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            my: 3,
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 10,
+                          }}
+                        >
+                          <Chip
+                            label={group.date}
+                            size="small"
                             sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              my: 3,
-                              position: 'sticky',
-                              top: 0,
-                              zIndex: 10,
+                              bgcolor: 'background.paper',
+                              fontWeight: 600,
+                              px: 2,
+                              boxShadow: 1,
                             }}
-                          >
-                            <Chip
-                              label={group.date}
-                              size="small"
-                              sx={{
-                                bgcolor: 'background.paper',
-                                fontWeight: 600,
-                                px: 2,
-                                boxShadow: 1,
-                              }}
-                            />
-                          </Box>
-
-                          {/* Messages for this date */}
-                          {group.messages.map((message) => {
-                            const isOwnMessage = Number(message.senderId) === Number(user?.id);
-                            return renderMessageBubble(message, isOwnMessage);
-                          })}
+                          />
                         </Box>
-                      ))}
-                      <div ref={messagesEndRef} />
-                    </Box>
-                  )}
-                </Box>
+
+                        {/* Messages for this date */}
+                        {group.messages.map((message) => {
+                          const isOwnMessage = Number(message.senderId) === Number(user?.id);
+                          return renderMessageBubble(message, isOwnMessage);
+                        })}
+                      </Box>
+                    ))}
+                    <div ref={messagesEndRef} />
+                  </Box>
+                )}
+              </Box>
 
               {/* Typing Indicator */}
               {typingUsers.size > 0 && (
@@ -1193,11 +1421,15 @@ const ChatPage: React.FC = () => {
                     fullWidth
                     multiline
                     maxRows={4}
-                    placeholder="Écrivez votre message..."
+                    placeholder={
+                      isUserParticipant 
+                        ? "Écrivez votre message..." 
+                        : "Vous devez être participant pour envoyer des messages"
+                    }
                     value={newMessage}
                     onChange={(e) => {
                       setNewMessage(e.target.value);
-                      if (currentRoom && isWsConnected) {
+                      if (currentRoom && isWsConnected && isUserParticipant) {
                         chatWebSocket.sendTypingNotification(currentRoom.id, true);
                         if (typingTimeoutRef.current) {
                           clearTimeout(typingTimeoutRef.current);
@@ -1208,12 +1440,13 @@ const ChatPage: React.FC = () => {
                       }
                     }}
                     onKeyPress={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                      if (e.key === 'Enter' && !e.shiftKey && isUserParticipant) {
                         e.preventDefault();
                         handleSendMessage();
                       }
                     }}
                     inputRef={messageInputRef}
+                    disabled={!isUserParticipant || !isWsConnected}
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         borderRadius: 3,
@@ -1223,7 +1456,7 @@ const ChatPage: React.FC = () => {
                   <IconButton
                     color="primary"
                     onClick={handleSendMessage}
-                    disabled={!newMessage.trim() || !isWsConnected}
+                    disabled={!newMessage.trim() || !isWsConnected || !isUserParticipant}
                     sx={{
                       bgcolor: 'primary.main',
                       color: 'white',
@@ -1238,6 +1471,12 @@ const ChatPage: React.FC = () => {
                     <SendIcon />
                   </IconButton>
                 </Box>
+                {!isUserParticipant && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                    <BlockIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
+                    Lecture seule - Vous n'êtes pas participant de ce salon
+                  </Typography>
+                )}
               </Paper>
             </>
           ) : (
@@ -1256,75 +1495,171 @@ const ChatPage: React.FC = () => {
                 Bienvenue dans le chat !
               </Typography>
               <Typography variant="body1" color="text.secondary" align="center" sx={{ maxWidth: 500 }}>
-                Sélectionnez un salon ou créez-en un nouveau pour commencer à chatter.
+                {canCreateRoom 
+                  ? 'Sélectionnez un salon ou créez-en un nouveau pour commencer à chatter.'
+                  : 'Sélectionnez un salon pour voir les messages.'
+                }
               </Typography>
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={<AddIcon />}
-                onClick={() => setShowNewRoomDialog(true)}
-              >
-                Créer un salon
-              </Button>
+              {canCreateRoom && (
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<AddIcon />}
+                  onClick={() => setShowNewRoomDialog(true)}
+                >
+                  Créer un salon
+                </Button>
+              )}
             </Box>
           )}
         </Box>
 
         {/* PARTICIPANTS SIDEBAR DESKTOP */}
-        <Paper
-          square
-          sx={{
-            display: { xs: 'none', md: 'flex' },
-            flexDirection: 'column',
-            width: 280,
-            borderLeft: 1,
-            borderColor: 'divider',
-            flexShrink: 0,
-          }}
-        >
-          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="h6">Participants ({participants.length})</Typography>
-          </Box>
+        {showParticipantsSidebar && (
+          <Paper
+            square
+            sx={{
+              display: { xs: 'none', md: 'flex' },
+              flexDirection: 'column',
+              width: 320,
+              borderLeft: 1,
+              borderColor: 'divider',
+              flexShrink: 0,
+              transition: 'transform 0.3s ease-in-out',
+              position: 'relative',
+            }}
+          >
+            {/* Bouton pour masquer la sidebar (dans la sidebar) */}
+            <Box sx={{ 
+              position: 'absolute', 
+              left: -20, 
+              top: 20, 
+              zIndex: 10,
+              bgcolor: 'background.paper',
+              borderRadius: '50%',
+              boxShadow: 1,
+            }}>
+              <Tooltip title="Masquer les participants">
+                <IconButton
+                  size="small"
+                  onClick={() => setShowParticipantsSidebar(false)}
+                >
+                  <ChevronRightIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
 
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
-            {participants.length === 0 ? (
-              <Box display="flex" alignItems="center" justifyContent="center" p={3}>
-                <Typography color="text.secondary" variant="body2">Aucun participant</Typography>
-              </Box>
-            ) : (
-              <List>
-                {participants.map((participant) => (
-                  <ListItem key={participant.id} sx={{ py: 1.5 }}>
-                    <ListItemAvatar>
-                      <Avatar sx={{
-                        bgcolor: getAvatarColor(participant.userId),
-                      }}>
-                        {getInitials(participant.user?.email)}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={
-                        <Box display="flex" alignItems="center" gap={0.5}>
-                          <Typography variant="subtitle2">
-                            {participant.user?.email?.split('@')[0] || `User ${participant.userId}`}
-                          </Typography>
-                        </Box>
+            <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6">Participants ({participants.length})</Typography>
+              <Tooltip title="Masquer">
+                <IconButton
+                  size="small"
+                  onClick={() => setShowParticipantsSidebar(false)}
+                  sx={{ display: { xs: 'none', md: 'flex' } }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              {participants.length === 0 ? (
+                <Box display="flex" alignItems="center" justifyContent="center" p={3}>
+                  <Typography color="text.secondary" variant="body2">Aucun participant</Typography>
+                </Box>
+              ) : (
+                <List>
+                  {participants.map((participant) => (
+                    <ListItem 
+                      key={participant.id} 
+                      sx={{ 
+                        py: 1.5,
+                        '&:hover': {
+                          bgcolor: 'action.hover',
+                        },
+                      }}
+                      secondaryAction={
+                        participant.user && participant.userId !== user.id && (
+                          <IconButton 
+                            edge="end" 
+                            size="small"
+                            onClick={() => handleStartPrivateChat(participant)}
+                            title="Discuter en privé"
+                          >
+                            <MessageIcon fontSize="small" />
+                          </IconButton>
+                        )
                       }
-                      secondary={
-                        <Chip
-                          size="small"
-                          label={participant.role}
-                          color={participant.role === 'OWNER' ? 'error' :
-                            participant.role === 'ADMIN' ? 'primary' : 'default'}
+                    >
+                      <ListItemButton
+                        onClick={() => handleViewParticipantDetails(participant)}
+                        sx={{ borderRadius: 1 }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar sx={{
+                            bgcolor: getAvatarColor(participant.userId),
+                          }}>
+                            {getInitials(participant.user?.email)}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              <Typography variant="subtitle2">
+                                {participant.user?.email?.split('@')[0] || `User ${participant.userId}`}
+                              </Typography>
+                              {participant.userId === user.id && (
+                                <Chip
+                                  size="small"
+                                  label="Vous"
+                                  color="primary"
+                                  sx={{ height: 20 }}
+                                />
+                              )}
+                            </Box>
+                          }
+                          secondary={
+                            <Chip
+                              size="small"
+                              label={participant.role}
+                              color={participant.role === 'OWNER' ? 'error' :
+                                participant.role === 'ADMIN' ? 'primary' : 'default'}
+                              sx={{ mt: 0.5 }}
+                            />
+                          }
                         />
-                      }
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            )}
-          </Box>
-        </Paper>
+                      </ListItemButton>
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </Box>
+          </Paper>
+        )}
+
+        {/* Bouton flottant pour afficher la liste des participants (quand cachée) */}
+        {!showParticipantsSidebar && (
+          <Tooltip title="Afficher les participants">
+            <Button
+              variant="contained"
+              onClick={() => setShowParticipantsSidebar(true)}
+              sx={{
+                display: { xs: 'none', md: 'flex' },
+                position: 'absolute',
+                right: 20,
+                top: 20,
+                zIndex: 1000,
+                minWidth: 'auto',
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                p: 0,
+              }}
+            >
+              <PeopleOutlinedIcon />
+            </Button>
+          </Tooltip>
+        )}
       </Box>
 
       {/* DRAWER ROOMS MOBILE */}
@@ -1337,6 +1672,13 @@ const ChatPage: React.FC = () => {
         <Box sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
             <Typography variant="h6">Salons</Typography>
+            {canCreateRoom && (
+              <Tooltip title="Nouveau salon">
+                <IconButton onClick={() => setShowNewRoomDialog(true)}>
+                  <AddIcon />
+                </IconButton>
+              </Tooltip>
+            )}
             <IconButton onClick={() => setShowRoomsDrawer(false)}>
               <CloseIcon />
             </IconButton>
@@ -1374,31 +1716,71 @@ const ChatPage: React.FC = () => {
         onClose={() => setShowParticipantsDrawer(false)}
         sx={{ '& .MuiDrawer-paper': { width: '85vw', maxWidth: 400 } }}
       >
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
             <Typography variant="h6">Participants ({participants.length})</Typography>
             <IconButton onClick={() => setShowParticipantsDrawer(false)}>
               <CloseIcon />
             </IconButton>
           </Box>
-          <List>
+          <List sx={{ flex: 1, overflow: 'auto' }}>
             {participants.map((participant) => (
-              <ListItem key={participant.id}>
-                <ListItemAvatar>
-                  <Avatar sx={{ bgcolor: getAvatarColor(participant.userId) }}>
-                    {getInitials(participant.user?.email)}
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={participant.user?.email?.split('@')[0] || `User ${participant.userId}`}
-                  secondary={
-                    <Chip
+              <ListItem 
+                key={participant.id}
+                sx={{ 
+                  py: 1.5,
+                  '&:hover': {
+                    bgcolor: 'action.hover',
+                  },
+                }}
+                secondaryAction={
+                  participant.user && participant.userId !== user.id && (
+                    <IconButton 
+                      edge="end" 
                       size="small"
-                      label={participant.role}
-                      color={participant.role === 'OWNER' ? 'error' : 'default'}
-                    />
-                  }
-                />
+                      onClick={() => handleStartPrivateChat(participant)}
+                      title="Discuter en privé"
+                    >
+                      <MessageIcon fontSize="small" />
+                    </IconButton>
+                  )
+                }
+              >
+                <ListItemButton
+                  onClick={() => handleViewParticipantDetails(participant)}
+                  sx={{ borderRadius: 1 }}
+                >
+                  <ListItemAvatar>
+                    <Avatar sx={{ bgcolor: getAvatarColor(participant.userId) }}>
+                      {getInitials(participant.user?.email)}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={
+                      <Box display="flex" alignItems="center" gap={0.5}>
+                        <Typography variant="subtitle2">
+                          {participant.user?.email?.split('@')[0] || `User ${participant.userId}`}
+                        </Typography>
+                        {participant.userId === user.id && (
+                          <Chip
+                            size="small"
+                            label="Vous"
+                            color="primary"
+                            sx={{ height: 20 }}
+                          />
+                        )}
+                      </Box>
+                    }
+                    secondary={
+                      <Chip
+                        size="small"
+                        label={participant.role}
+                        color={participant.role === 'OWNER' ? 'error' : 'default'}
+                        sx={{ mt: 0.5 }}
+                      />
+                    }
+                  />
+                </ListItemButton>
               </ListItem>
             ))}
           </List>
@@ -1412,49 +1794,71 @@ const ChatPage: React.FC = () => {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Créer un nouveau salon</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Nom du salon"
-            fullWidth
-            value={newRoomName}
-            onChange={(e) => setNewRoomName(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            margin="dense"
-            label="Description (optionnel)"
-            fullWidth
-            multiline
-            rows={3}
-            value={newRoomDescription}
-            onChange={(e) => setNewRoomDescription(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <Box display="flex" alignItems="center" gap={2}>
-            <Typography variant="body1">Type</Typography>
-            <Chip
-              label="Public"
-              color={!isPrivateRoom ? 'primary' : 'default'}
-              onClick={() => setIsPrivateRoom(false)}
-              variant={!isPrivateRoom ? 'filled' : 'outlined'}
-            />
-            <Chip
-              icon={<LockIcon />}
-              label="Privé"
-              color={isPrivateRoom ? 'secondary' : 'default'}
-              onClick={() => setIsPrivateRoom(true)}
-              variant={isPrivateRoom ? 'filled' : 'outlined'}
-            />
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <AdminIcon color="secondary" />
+            <Typography variant="h6">
+              Créer un nouveau salon (Admin seulement)
+            </Typography>
           </Box>
+        </DialogTitle>
+        <DialogContent>
+          {!canCreateRoom ? (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              Seuls les administrateurs peuvent créer des salons.
+            </Alert>
+          ) : (
+            <>
+              <TextField
+                autoFocus
+                margin="dense"
+                label="Nom du salon"
+                fullWidth
+                value={newRoomName}
+                onChange={(e) => setNewRoomName(e.target.value)}
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                margin="dense"
+                label="Description (optionnel)"
+                fullWidth
+                multiline
+                rows={3}
+                value={newRoomDescription}
+                onChange={(e) => setNewRoomDescription(e.target.value)}
+                sx={{ mb: 2 }}
+              />
+              <Box display="flex" alignItems="center" gap={2}>
+                <Typography variant="body1">Type</Typography>
+                <Chip
+                  label="Public"
+                  color={!isPrivateRoom ? 'primary' : 'default'}
+                  onClick={() => setIsPrivateRoom(false)}
+                  variant={!isPrivateRoom ? 'filled' : 'outlined'}
+                />
+                <Chip
+                  icon={<LockIcon />}
+                  label="Privé"
+                  color={isPrivateRoom ? 'secondary' : 'default'}
+                  onClick={() => setIsPrivateRoom(true)}
+                  variant={isPrivateRoom ? 'filled' : 'outlined'}
+                />
+              </Box>
+            </>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowNewRoomDialog(false)}>Annuler</Button>
-          <Button onClick={handleCreateRoom} variant="contained" disabled={!newRoomName.trim()}>
-            Créer
-          </Button>
+          {canCreateRoom && (
+            <Button 
+              onClick={handleCreateRoom} 
+              variant="contained" 
+              disabled={!newRoomName.trim()}
+              startIcon={<AdminIcon />}
+            >
+              Créer
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 

@@ -61,7 +61,7 @@ const App: React.FC = () => {
           />
 
           <Route 
-            path="/one-to-one" element={
+            path="/one-to-one/:id" element={
               <ProtectedRoute>
                 <OneToOnePage />
               </ProtectedRoute>

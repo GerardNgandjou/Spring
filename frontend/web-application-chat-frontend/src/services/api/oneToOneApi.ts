@@ -27,4 +27,4 @@ export const oneToOneApi = {
   // Récupérer le nombre de messages non lus
   getUnreadCount: (userId: number) => 
     api.get<{ unreadCount: number }>(`/api/private-chat/unread-count/${userId}`),
-};
+}; 

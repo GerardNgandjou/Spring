@@ -13,13 +13,12 @@ import {
   ListItemButton,
   Chip,
   Stack,
+  alpha,
 } from '@mui/material';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import {
-  Circle as CircleIcon,
   DoneAll as DoneAllIcon,
-  ArrowForward as ArrowForwardIcon,
 } from '@mui/icons-material';
 import type { Contact } from '../../types/oneToOne.type';
 
@@ -40,12 +39,9 @@ const ContactList: React.FC<ContactListProps> = ({
     const date = new Date(timestamp);
     const now = new Date();
     const isToday = date.toDateString() === now.toDateString();
-    const isYesterday = new Date(now.setDate(now.getDate() - 1)).toDateString() === date.toDateString();
     
     if (isToday) {
       return format(date, 'HH:mm', { locale: fr });
-    } else if (isYesterday) {
-      return 'Hier';
     }
     return format(date, 'dd/MM', { locale: fr });
   };
@@ -58,13 +54,33 @@ const ContactList: React.FC<ContactListProps> = ({
       .slice(0, 2);
   };
 
+  const getAvatarColor = (userId: number) => {
+    const colors = [
+      '#667eea', '#764ba2', '#f093fb', '#4ecdc4', '#45b7d1',
+      '#96fbc4', '#f9d423', '#ff8a00', '#52b788', '#fd746c'
+    ];
+    return colors[userId % colors.length];
+  };
+
   return (
     <Box 
       sx={{ 
         width: '100%', 
         height: '100%', 
         overflowY: 'auto',
-        background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+        background: '#FFFFFF',
+        borderRight: '1px solid',
+        borderColor: 'divider',
+        '&::-webkit-scrollbar': {
+          width: '4px',
+        },
+        '&::-webkit-scrollbar-track': {
+          background: 'transparent',
+        },
+        '&::-webkit-scrollbar-thumb': {
+          background: 'rgba(0, 0, 0, 0.1)',
+          borderRadius: '2px',
+        }
       }}
     >
       <List sx={{ p: 0 }}>
@@ -78,17 +94,18 @@ const ContactList: React.FC<ContactListProps> = ({
                 disablePadding
                 sx={{
                   position: 'relative',
-                  '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: 4,
-                    backgroundColor: isSelected ? '#667eea' : 'transparent',
-                    borderTopRightRadius: 4,
-                    borderBottomRightRadius: 4,
-                    transition: 'background-color 0.3s',
+                  '&:hover': {
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: '3px',
+                      bgcolor: getAvatarColor(contact.userId),
+                      borderTopRightRadius: '3px',
+                      borderBottomRightRadius: '3px',
+                    }
                   }
                 }}
               >
@@ -96,68 +113,55 @@ const ContactList: React.FC<ContactListProps> = ({
                   selected={isSelected}
                   onClick={() => onSelectContact(contact.userId)}
                   sx={{
+                    py: 1.75,
+                    px: 2.5,
+                    gap: 2,
+                    borderRadius: 0,
+                    transition: 'background-color 0.2s ease',
+                    backgroundColor: isSelected ? alpha(getAvatarColor(contact.userId), 0.06) : 'transparent',
                     '&:hover': {
-                      backgroundColor: hasUnread 
-                        ? 'rgba(245, 87, 108, 0.05)' 
-                        : 'rgba(0, 0, 0, 0.03)',
-                      '&::before': {
-                        backgroundColor: hasUnread ? '#f5576c' : '#667eea',
-                      }
+                      backgroundColor: alpha(getAvatarColor(contact.userId), 0.04),
                     },
                     '&.Mui-selected': {
-                      backgroundColor: hasUnread
-                        ? 'rgba(245, 87, 108, 0.1)'
-                        : 'rgba(102, 126, 234, 0.08)',
+                      backgroundColor: alpha(getAvatarColor(contact.userId), 0.08),
                       '&:hover': {
-                        backgroundColor: hasUnread
-                          ? 'rgba(245, 87, 108, 0.15)'
-                          : 'rgba(102, 126, 234, 0.12)',
+                        backgroundColor: alpha(getAvatarColor(contact.userId), 0.1),
                       }
                     },
-                    px: 2.5,
-                    py: 2,
-                    transition: 'all 0.3s ease',
                   }}
                 >
-                  <ListItemAvatar sx={{ minWidth: 56 }}>
+                  <ListItemAvatar sx={{ minWidth: 52 }}>
                     <Badge
                       overlap="circular"
                       anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                      badgeContent={
-                        contact.online !== undefined ? (
-                          <CircleIcon 
-                            sx={{ 
-                              fontSize: 12, 
-                              color: contact.online ? '#4caf50' : '#9e9e9e',
-                              filter: contact.online ? 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.5))' : 'none',
-                              backgroundColor: 'white',
-                              borderRadius: '50%',
-                            }} 
-                          />
-                        ) : null
-                      }
+                      variant="dot"
+                      sx={{
+                        '& .MuiBadge-dot': {
+                          backgroundColor: contact.online ? '#4caf50' : '#9e9e9e',
+                          width: '12px',
+                          height: '12px',
+                          borderRadius: '50%',
+                          border: '2px solid white',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                          animation: contact.online ? 'pulse 2s ease-in-out infinite' : 'none',
+                          '@keyframes pulse': {
+                            '0%, 100%': { transform: 'scale(1)' },
+                            '50%': { transform: 'scale(1.2)' },
+                          }
+                        }
+                      }}
                     >
                       <Avatar
                         sx={{
-                          width: 48,
-                          height: 48,
-                          bgcolor: hasUnread 
-                            ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
-                            : isSelected
-                            ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-                            : `hsl(${index * 137.508}, 70%, 50%)`,
+                          width: 44,
+                          height: 44,
+                          bgcolor: getAvatarColor(contact.userId),
                           color: 'white',
-                          fontWeight: 'bold',
-                          fontSize: 18,
-                          boxShadow: hasUnread 
-                            ? '0 4px 12px rgba(245, 87, 108, 0.3)' 
-                            : '0 2px 8px rgba(0,0,0,0.1)',
-                          transition: 'all 0.3s ease',
+                          fontWeight: 600,
+                          fontSize: 15,
+                          transition: 'transform 0.2s ease',
                           '&:hover': {
                             transform: 'scale(1.05)',
-                            boxShadow: hasUnread
-                              ? '0 6px 16px rgba(245, 87, 108, 0.4)'
-                              : '0 6px 16px rgba(0,0,0,0.2)',
                           }
                         }}
                       >
@@ -171,49 +175,29 @@ const ContactList: React.FC<ContactListProps> = ({
                       <Stack 
                         direction="row" 
                         justifyContent="space-between" 
-                        alignItems="center"
-                        spacing={1}
+                        alignItems="flex-start"
+                        sx={{ mb: 0.25 }}
                       >
                         <Typography 
-                          variant="subtitle1" 
+                          variant="subtitle2" 
                           noWrap
                           sx={{
                             fontWeight: hasUnread ? 700 : 600,
-                            fontSize: '0.95rem',
-                            color: hasUnread 
-                              ? '#f5576c' 
-                              : isSelected 
-                              ? '#667eea' 
-                              : 'text.primary',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
+                            fontSize: '0.9375rem',
+                            color: isSelected ? getAvatarColor(contact.userId) : 'text.primary',
+                            flex: 1,
+                            mr: 1,
                           }}
                         >
                           {contact.username}
-                          {hasUnread && (
-                            <ArrowForwardIcon 
-                              sx={{ 
-                                fontSize: 14, 
-                                color: '#f5576c',
-                                animation: 'bounce 1s infinite',
-                                '@keyframes bounce': {
-                                  '0%, 100%': { transform: 'translateX(0)' },
-                                  '50%': { transform: 'translateX(3px)' },
-                                }
-                              }} 
-                            />
-                          )}
                         </Typography>
 
-                        <Stack alignItems="flex-end" spacing={0.5}>
+                        <Stack alignItems="flex-end" spacing={0.25}>
                           {contact.lastMessageTime && (
                             <Typography 
                               variant="caption" 
                               sx={{
-                                color: hasUnread 
-                                  ? '#f5576c' 
-                                  : 'text.secondary',
+                                color: hasUnread ? getAvatarColor(contact.userId) : 'text.secondary',
                                 fontWeight: hasUnread ? 600 : 400,
                                 fontSize: '0.75rem',
                                 whiteSpace: 'nowrap',
@@ -223,13 +207,13 @@ const ContactList: React.FC<ContactListProps> = ({
                             </Typography>
                           )}
                           
-                          {contact.lastMessage && contact.lastMessage.includes('✔') && (
+                          {contact.lastMessage?.includes('✔') && (
                             <DoneAllIcon 
                               sx={{ 
-                                fontSize: 14, 
+                                fontSize: 13, 
                                 color: contact.lastMessage.includes('✔✔') 
-                                  ? '#4caf50' 
-                                  : '#9e9e9e' 
+                                  ? getAvatarColor(contact.userId)
+                                  : 'action.disabled',
                               }} 
                             />
                           )}
@@ -242,20 +226,17 @@ const ContactList: React.FC<ContactListProps> = ({
                         justifyContent="space-between" 
                         alignItems="center"
                         spacing={1}
-                        sx={{ mt: 0.5 }}
                       >
                         <Typography
                           variant="body2"
                           noWrap
                           sx={{
-                            fontWeight: hasUnread ? 600 : 400,
-                            color: hasUnread
-                              ? '#f5576c'
-                              : 'text.secondary',
-                            fontSize: '0.875rem',
+                            fontWeight: hasUnread ? 500 : 400,
+                            color: hasUnread ? getAvatarColor(contact.userId) : 'text.secondary',
+                            fontSize: '0.8125rem',
                             flex: 1,
                             fontStyle: !contact.lastMessage ? 'italic' : 'normal',
-                            opacity: !contact.lastMessage ? 0.7 : 1,
+                            opacity: !contact.lastMessage ? 0.6 : 1,
                           }}
                         >
                           {contact.lastMessage || 'Aucun message'}
@@ -266,14 +247,14 @@ const ContactList: React.FC<ContactListProps> = ({
                             label={contact.unreadCount > 99 ? '99+' : contact.unreadCount}
                             size="small"
                             sx={{
-                              backgroundColor: '#f5576c',
+                              bgcolor: getAvatarColor(contact.userId),
                               color: 'white',
-                              fontWeight: 'bold',
-                              fontSize: '0.75rem',
-                              height: 20,
-                              minWidth: 20,
+                              fontWeight: 600,
+                              fontSize: '0.6875rem',
+                              height: '20px',
+                              minWidth: '20px',
                               '& .MuiChip-label': {
-                                px: 0.75,
+                                px: 0.5,
                               }
                             }}
                           />
@@ -281,23 +262,25 @@ const ContactList: React.FC<ContactListProps> = ({
                       </Stack>
                     }
                     sx={{ 
-                      ml: 1,
+                      m: 0,
                       '& .MuiListItemText-primary': {
-                        mb: 0.5,
+                        marginBottom: 0,
                       }
                     }}
                   />
                 </ListItemButton>
               </ListItem>
               
-              <Divider 
-                variant="inset" 
-                component="li" 
-                sx={{ 
-                  ml: '88px !important',
-                  opacity: 0.2,
-                }} 
-              />
+              {index < contacts.length - 1 && (
+                <Divider 
+                  variant="middle" 
+                  component="li" 
+                  sx={{ 
+                    mx: 3,
+                    opacity: 0.5,
+                  }} 
+                />
+              )}
             </React.Fragment>
           );
         })}

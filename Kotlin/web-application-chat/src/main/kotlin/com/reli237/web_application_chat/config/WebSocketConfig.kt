@@ -23,9 +23,13 @@ class WebSocketConfig(
         // Préfixe pour les messages envoyés PAR le serveur aux clients
         // /topic = messages publics (broadcast)
         // /queue = messages privés (dirigés vers un utilisateur spécifique)
+        // Add file-related topics
         config.enableSimpleBroker(
             "/topic",
-            "/queue"
+            "/queue",
+            "/topic/files",     // For file upload notifications
+            "/topic/room",      // Room-specific notifications
+            "/user"            // User-specific notifications
         )
 
         // Préfixe pour les messages privés dirigés vers un utilisateur
@@ -37,6 +41,11 @@ class WebSocketConfig(
         registry.addEndpoint("/ws-chat")
             .setAllowedOriginPatterns("*")  // À adapter en production!
             .withSockJS()  // Fallback pour les navigateurs sans WebSocket natif
+
+        // Add separate endpoint for file uploads if needed
+        registry.addEndpoint("/ws-files")
+            .setAllowedOriginPatterns("*")
+            .withSockJS()
     }
 
     override fun configureClientInboundChannel(registration: ChannelRegistration) {

@@ -7,14 +7,23 @@ spring:
       max-request-size: 10MB
       enabled: true
   datasource:
-    url: jdbc:h2:mem:testbd
-    driver-class-name: org.h2.Driver
-  h2:
-    console:
-      enabled: true
+    url: jdbc:postgresql://localhost:5432/management_file
+    username: postgres
+    password: root
+    driver-class-name: org.postgresql.Driver
+
+  session:
+    store-type: jdbc
+
+  # Hibernate properties
   jpa:
-    show-sql: true
+    database: postgresql
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
 file:
   upload-dir: ./upload

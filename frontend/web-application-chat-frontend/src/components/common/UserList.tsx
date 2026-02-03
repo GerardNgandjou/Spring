@@ -1,8 +1,9 @@
-// src/components/common/UserList.tsx (version corrigée)
-import React, { useState, useEffect } from 'react';
+// src/components/common/UserList.tsx
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   List,
+  ListItem,
   ListItemAvatar,
   Avatar,
   ListItemText,
@@ -10,25 +11,26 @@ import {
   TextField,
   InputAdornment,
   CircularProgress,
-  IconButton,
+  Alert,
+  Divider,
   ListItemButton,
   Chip,
-  alpha,
-  Fade,
+  Stack,
+  Tooltip,
 } from '@mui/material';
 import {
   Search as SearchIcon,
-  PersonAdd as PersonAddIcon,
-  Person as PersonIcon,
   CheckCircle as CheckCircleIcon,
-} from '@mui/icons-material'; 
+  Person as PersonIcon,
+  Add as AddIcon,
+} from '@mui/icons-material';
 import type { User } from '../../types/oneToOne.type';
 import { userApi } from '../../services/api/user';
 
 interface UserListProps {
   currentUserId: number;
   onSelectUser: (user: User) => void;
-  existingContacts: User[];
+  existingContacts: Array<{ id: number; email: string }>;
 }
 
 const UserList: React.FC<UserListProps> = ({
@@ -39,291 +41,468 @@ const UserList: React.FC<UserListProps> = ({
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hoveredUserId, setHoveredUserId] = useState<number | null>(null);
+  const [searching, setSearching] = useState(false);
 
-  useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        setLoading(true);
-        const response = await userApi.getAllUsersExceptCurrentUser(currentUserId);
-        setUsers(response.data);
-        setFilteredUsers(response.data);
-      } catch (err: any) {
-        setError(err.response?.data?.message || 'Erreur lors du chargement des utilisateurs');
-      } finally {
-        setLoading(false);
+  // Fetch all users except current user
+  const fetchUsers = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await userApi.getAllUsersExceptCurrentUser(currentUserId);
+      
+      if (response.data) {
+        const fetchedUsers = response.data.map((user: any) => ({
+          id: user.id,
+          email: user.email,
+          username: user.username || user.email.split('@')[0],
+          firstName: user.firstName || '',
+          lastName: user.lastName || '',
+          avatarUrl: user.avatarUrl || null,
+          status: user.status || 'offline',
+        }));
+        
+        setUsers(fetchedUsers);
+        setFilteredUsers(fetchedUsers);
       }
-    };
-    
-    loadUsers();
+    } catch (err: any) {
+      setError('Erreur lors du chargement des utilisateurs');
+      console.error('Error fetching users:', err);
+    } finally {
+      setLoading(false);
+    }
   }, [currentUserId]);
 
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
+  // Search users
+  const handleSearch = async (query: string) => {
+    if (!query.trim()) {
       setFilteredUsers(users);
-    } else {
-      const filtered = users.filter(user =>
-        user.email.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setFilteredUsers(filtered);
+      return;
     }
+
+    try {
+      setSearching(true);
+      const response = await userApi.searchUsers(currentUserId, query);
+      
+      if (response.data) {
+        const searchedUsers = response.data.map((user: any) => ({
+          id: user.id,
+          email: user.email,
+          username: user.username || user.email.split('@')[0],
+          firstName: user.firstName || '',
+          lastName: user.lastName || '',
+          avatarUrl: user.avatarUrl || null,
+          status: user.status || 'offline',
+        }));
+        
+        setFilteredUsers(searchedUsers);
+      }
+    } catch (err: any) {
+      setError('Erreur lors de la recherche');
+      console.error('Error searching users:', err);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery.trim()) {
+        handleSearch(searchQuery);
+      } else {
+        setFilteredUsers(users);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
   }, [searchQuery, users]);
 
-  const isExistingContact = (userId: number) => {
+  // Initial fetch
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  // Check if user is already a contact
+  const isExistingContact = (userId: number): boolean => {
     return existingContacts.some(contact => contact.id === userId);
   };
 
-  const getInitials = (email: string) => {
-    const name = email.split('@')[0];
-    return name
-      .split(/[._-]/)
-      .map(part => part.charAt(0).toUpperCase())
-      .join('')
-      .slice(0, 2);
+  // Get user initials
+  const getInitials = (user: User): string => {
+    if (user.email) {
+      return `${user.email.charAt(0)}`.toUpperCase();
+    }
+    return user.email.slice(0, 2).toUpperCase();
   };
 
-  const getGradientColor = (index: number) => {
-    const gradients = [
+  // Get gradient color based on user ID
+  const getAvatarColor = (userId: number): string => {
+    const colors = [
       'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
       'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
       'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
       'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+      'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
+      'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
     ];
-    return gradients[index % gradients.length];
+    return colors[userId % colors.length];
+  };
+
+  // Get status color
+  const getStatusColor = (status: string): string => {
+    switch (status.toLowerCase()) {
+      case 'online':
+        return '#4caf50';
+      case 'away':
+        return '#ff9800';
+      case 'busy':
+        return '#f44336';
+      case 'offline':
+      default:
+        return '#9e9e9e';
+    }
   };
 
   if (loading) {
     return (
-      <Box 
-        sx={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center',
-          height: '100%',
-          background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-        }}
-      >
-        <Box sx={{ textAlign: 'center' }}>
-          <CircularProgress 
-            size={60}
-            thickness={4}
-            sx={{ 
-              color: 'primary.main',
-              mb: 2,
-            }}
-          />
-          <Typography variant="body2" color="text.secondary">
-            Chargement des utilisateurs...
-          </Typography>
-        </Box>
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box sx={{ p: 2 }}>
-        <Typography color="error">{error}</Typography>
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100%' 
+      }}>
+        <CircularProgress />
       </Box>
     );
   }
 
   return (
-    <Box 
-      sx={{ 
-        height: '100%', 
-        display: 'flex', 
-        flexDirection: 'column',
-        background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-      }}
-    >
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
       <Box sx={{ 
-        p: 2.5, 
-        borderBottom: '1px solid', 
+        p: 2, 
+        borderBottom: 1, 
         borderColor: 'divider',
+        background: 'rgba(255, 255, 255, 0.9)',
         backdropFilter: 'blur(10px)',
-        backgroundColor: alpha('#ffffff', 0.7),
       }}>
+        <Typography variant="h6" fontWeight="700" gutterBottom>
+          Ajouter un contact
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Recherchez et démarrez une nouvelle conversation
+        </Typography>
+        
+        {/* Search bar */}
         <TextField
           fullWidth
+          size="small"
           placeholder="Rechercher un utilisateur..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          size="small"
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              borderRadius: '50px',
-              backgroundColor: 'white',
-              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
-              '&:hover': {
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-              },
-              '&.Mui-focused': {
-                boxShadow: '0 12px 40px rgba(25, 118, 210, 0.2)',
-              }
-            }
-          }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <SearchIcon color="primary" />
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+            endAdornment: searching && (
+              <InputAdornment position="end">
+                <CircularProgress size={20} />
               </InputAdornment>
             ),
           }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 3,
+              background: 'rgba(255, 255, 255, 0.8)',
+            }
+          }}
         />
+        
+        {/* Stats */}
+        <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+          <Chip
+            label={`${users.length} utilisateurs`}
+            size="small"
+            color="primary"
+            variant="outlined"
+            sx={{ fontWeight: 600 }}
+          />
+          <Chip
+            label={`${filteredUsers.length} résultats`}
+            size="small"
+            color="secondary"
+            variant="outlined"
+            sx={{ fontWeight: 600 }}
+          />
+        </Stack>
       </Box>
 
-      <Box sx={{ flexGrow: 1, overflowY: 'auto', px: 1 }}>
-        <Fade in={true} timeout={500}>
-          <List>
-            {filteredUsers.length === 0 ? (
-              <Box sx={{ 
-                p: 4, 
-                textAlign: 'center',
-                opacity: 0.7,
-              }}>
-                <PersonIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
-                <Typography variant="body1" color="text.secondary">
-                  {searchQuery ? 'Aucun utilisateur trouvé' : 'Aucun utilisateur disponible'}
+      {/* Error display */}
+      {error && (
+        <Alert 
+          severity="error" 
+          sx={{ 
+            mx: 2, 
+            mt: 2,
+            borderRadius: 2,
+            backdropFilter: 'blur(10px)',
+          }}
+          onClose={() => setError(null)}
+        >
+          {error}
+        </Alert>
+      )}
+
+      {/* User list */}
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
+        {filteredUsers.length === 0 ? (
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            p: 4,
+            height: '100%',
+            textAlign: 'center',
+          }}>
+            {searchQuery ? (
+              <>
+                <SearchIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                  Aucun utilisateur trouvé
                 </Typography>
-              </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Essayez avec un autre nom ou email
+                </Typography>
+              </>
             ) : (
-              filteredUsers.map((user, index) => {
-                const isContact = isExistingContact(user.id);
-                const isHovered = hoveredUserId === user.id;
-                
-                return (
-                  <ListItemButton
-                    key={user.id}
-                    onClick={() => onSelectUser(user)}
-                    onMouseEnter={() => setHoveredUserId(user.id)}
-                    onMouseLeave={() => setHoveredUserId(null)}
-                    sx={{
-                      borderRadius: '16px',
-                      mb: 1,
-                      mx: 0.5,
-                      p: 2,
-                      backgroundColor: isHovered 
-                        ? alpha('#ffffff', 0.9)
-                        : 'transparent',
-                      backdropFilter: isHovered ? 'blur(10px)' : 'none',
-                      border: '1px solid',
-                      borderColor: isHovered ? 'primary.light' : 'transparent',
-                      boxShadow: isHovered 
-                        ? '0 8px 32px rgba(0, 0, 0, 0.15)'
-                        : '0 2px 8px rgba(0, 0, 0, 0.05)',
-                      transform: isHovered ? 'translateY(-2px)' : 'translateY(0)',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        backgroundColor: alpha('#ffffff', 0.9),
-                        borderColor: 'primary.light',
-                        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.2)',
-                        transform: 'translateY(-4px)',
-                      }
-                    }}
-                  >
-                    <ListItemAvatar sx={{ minWidth: 56 }}>
-                      <Avatar
-                        sx={{
-                          width: 52,
-                          height: 52,
-                          background: getGradientColor(index),
-                          color: 'white',
-                          fontWeight: 'bold',
-                          fontSize: 18,
-                          boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
-                          transform: isHovered ? 'scale(1.1)' : 'scale(1)',
-                          transition: 'transform 0.3s ease',
-                        }}
-                      >
-                        {getInitials(user.email)}
-                      </Avatar>
-                    </ListItemAvatar>
-
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <Typography variant="subtitle1" fontWeight={600}>
-                            {user.email.split('@')[0]}
-                          </Typography>
-
-                          {isContact ? (
-                            <Chip
-                              label="Contact"
-                              size="small"
-                              icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
-                              sx={{
-                                backgroundColor: alpha('#4caf50', 0.1),
-                                color: '#4caf50',
-                                fontWeight: 'bold',
-                                fontSize: '0.75rem',
-                                height: 24,
-                                '& .MuiChip-icon': {
-                                  ml: 0.5,
-                                }
-                              }}
-                            />
-                          ) : (
-                            <Chip
-                              label="Nouveau"
-                              size="small"
-                              sx={{
-                                backgroundColor: alpha('#2196f3', 0.1),
-                                color: '#2196f3',
-                                fontWeight: 'bold',
-                                fontSize: '0.75rem',
-                                height: 24,
-                              }}
-                            />
-                          )}
-                        </Box>
-                      }
-                      secondary={
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          sx={{ 
-                            mt: 0.5,
-                            fontSize: '0.875rem',
-                          }}
-                        >
-                          {user.email}
-                        </Typography>
-                      }
-                    />
-
-                    <IconButton 
-                      size="small"
+              <>
+                <PersonIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                  Aucun utilisateur disponible
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Tous les utilisateurs sont déjà vos contacts
+                </Typography>
+              </>
+            )}
+          </Box>
+        ) : (
+          <List sx={{ p: 0 }}>
+            {filteredUsers.map((user, index) => {
+              const isContact = isExistingContact(user.id);
+              
+              return (
+                <React.Fragment key={user.id}>
+                  <ListItem disablePadding>
+                    <ListItemButton
+                      onClick={() => onSelectUser(user)}
+                      disabled={isContact}
                       sx={{
-                        backgroundColor: isContact 
-                          ? alpha('#4caf50', 0.1)
-                          : alpha('#2196f3', 0.1),
-                        color: isContact ? '#4caf50' : '#2196f3',
-                        transform: isHovered ? 'scale(1.2)' : 'scale(1)',
+                        px: 2.5,
+                        py: 2,
                         transition: 'all 0.3s ease',
                         '&:hover': {
                           backgroundColor: isContact 
-                            ? alpha('#4caf50', 0.2)
-                            : alpha('#2196f3', 0.2),
-                          transform: 'scale(1.3)',
+                            ? 'rgba(158, 158, 158, 0.1)' 
+                            : 'rgba(102, 126, 234, 0.05)',
+                        },
+                        '&.Mui-disabled': {
+                          opacity: 0.7,
+                        },
+                        animation: 'slideIn 0.3s ease-out',
+                        animationDelay: `${index * 0.05}s`,
+                        '@keyframes slideIn': {
+                          from: {
+                            opacity: 0,
+                            transform: 'translateX(-10px)',
+                          },
+                          to: {
+                            opacity: 1,
+                            transform: 'translateX(0)',
+                          }
                         }
                       }}
                     >
-                      {isContact ? (
-                        <CheckCircleIcon />
-                      ) : (
-                        <PersonAddIcon />
-                      )}
-                    </IconButton>
-                  </ListItemButton>
-                );
-              })
-            )}
+                      <ListItemAvatar sx={{ position: 'relative' }}>
+                        <Avatar
+                          sx={{
+                            width: 52,
+                            height: 52,
+                            background: getAvatarColor(user.id),
+                            color: 'white',
+                            fontWeight: 'bold',
+                            fontSize: 16,
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              transform: 'scale(1.1) rotate(5deg)',
+                              boxShadow: '0 12px 32px rgba(0,0,0,0.25)',
+                            }
+                          }}
+                        >
+                          {getInitials(user)}
+                        </Avatar>
+                        
+                        {/* Status indicator */}
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            bottom: 2,
+                            right: 2,
+                            width: 12,
+                            height: 12,
+                            border: '2px solid white',
+                            borderRadius: '50%',
+                            backgroundColor: getStatusColor(user.role || 'offline'),
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                          }}
+                        />
+                      </ListItemAvatar>
+
+                      <ListItemText
+                        sx={{ ml: 2 }}
+                        primary={
+                          <Stack direction="row" alignItems="center" spacing={1}>
+                            <Typography 
+                              variant="subtitle1" 
+                              fontWeight="700"
+                              sx={{
+                                color: isContact ? 'text.disabled' : '#333',
+                              }}
+                            >
+                              {user.email}
+                            </Typography>
+                            
+                            {isContact && (
+                              <Tooltip title="Déjà contact">
+                                <CheckCircleIcon 
+                                  fontSize="small" 
+                                  color="success"
+                                  sx={{ 
+                                    animation: 'fadeIn 0.5s ease',
+                                    '@keyframes fadeIn': {
+                                      from: { opacity: 0, transform: 'scale(0.8)' },
+                                      to: { opacity: 1, transform: 'scale(1)' },
+                                    }
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
+                          </Stack>
+                        }
+                        secondary={
+                          <Stack direction="column" spacing={0.5}>
+                            <Typography 
+                              variant="body2" 
+                              color={isContact ? 'text.disabled' : 'text.secondary'}
+                            >
+                              {user.email}
+                            </Typography>
+                            
+                            {user.email && (
+                              <Typography 
+                                variant="caption" 
+                                color={isContact ? 'text.disabled' : 'text.secondary'}
+                                sx={{ fontStyle: 'italic' }}
+                              >
+                                {user.email}
+                              </Typography>
+                            )}
+                            
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                              <Chip
+                                label={user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Inconnu'}
+                                size="small"
+                                sx={{
+                                  backgroundColor: getStatusColor(user.role || 'offline'),
+                                  color: 'white',
+                                  fontSize: '0.7rem',
+                                  fontWeight: 600,
+                                  height: 20,
+                                  '& .MuiChip-label': {
+                                    px: 1,
+                                  }
+                                }}
+                              />
+                              
+                              {isContact ? (
+                                <Chip
+                                  label="Contact"
+                                  size="small"
+                                  color="success"
+                                  variant="outlined"
+                                  sx={{
+                                    fontSize: '0.7rem',
+                                    height: 20,
+                                    borderColor: '#4caf50',
+                                    color: '#4caf50',
+                                  }}
+                                />
+                              ) : (
+                                <Chip
+                                  icon={<AddIcon fontSize="small" />}
+                                  label="Ajouter"
+                                  size="small"
+                                  color="primary"
+                                  variant="outlined"
+                                  sx={{
+                                    fontSize: '0.7rem',
+                                    height: 20,
+                                    borderColor: '#667eea',
+                                    color: '#667eea',
+                                    '&:hover': {
+                                      backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                                    }
+                                  }}
+                                />
+                              )}
+                            </Stack>
+                          </Stack>
+                        }
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                  
+                  {index < filteredUsers.length - 1 && (
+                    <Divider 
+                      variant="inset" 
+                      component="li" 
+                      sx={{ 
+                        ml: '100px !important',
+                        opacity: 0.1,
+                        background: 'linear-gradient(to right, transparent, #667eea, transparent)',
+                        height: '1px',
+                      }} 
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
           </List>
-        </Fade>
+        )}
+      </Box>
+
+      {/* Footer */}
+      <Box sx={{ 
+        p: 2, 
+        borderTop: 1, 
+        borderColor: 'divider',
+        background: 'rgba(255, 255, 255, 0.9)',
+        backdropFilter: 'blur(10px)',
+        textAlign: 'center',
+      }}>
+        <Typography variant="caption" color="text.secondary">
+          {existingContacts.length} contacts existants • {filteredUsers.length} utilisateurs disponibles
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          Sélectionnez un utilisateur pour démarrer une conversation
+        </Typography>
       </Box>
     </Box>
   );

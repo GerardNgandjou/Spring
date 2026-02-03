@@ -26,7 +26,7 @@ data class Users(
     @Enumerated(EnumType.STRING)
     val role: UserRole = UserRole.USER,
 
-    @OneToMany(mappedBy = "user", cascade = [CascadeType.ALL])
+    @OneToMany(mappedBy = "user", cascade = [CascadeType.ALL], fetch = FetchType.LAZY)
     @JsonIgnore  // ✅ EMPÊCHE la sérialisation de cette relation
     val chatParticipants: List<ChatParticipant> = mutableListOf()
 
