@@ -728,7 +728,7 @@ const ChatPage: React.FC = () => {
     }
     
     // Naviguer vers la page de chat privé
-    navigate(`/private-chat/${participant.user.id}`);
+    navigate(`/one-to-one/${participant.user.id}`);
   };
 
   const formatDate = (dateString: string): string => {
