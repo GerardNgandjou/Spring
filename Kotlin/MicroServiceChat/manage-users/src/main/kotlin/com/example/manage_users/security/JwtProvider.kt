@@ -5,6 +5,8 @@ import com.example.manage_users.execption.InvalidTokenException
 import io.jsonwebtoken.*
 import io.jsonwebtoken.security.Keys
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.security.core.Authentication
+import org.springframework.security.core.userdetails.UserDetails
 import org.springframework.stereotype.Component
 import java.security.Key
 import java.util.*
@@ -35,6 +37,11 @@ class JwtProvider (
     }
 
     // Access & Refresh tokens
+    fun generateAccessToken(authentication: Authentication): String {
+        val userDetails = authentication.principal as UserDetails
+        return generateToken(userDetails.username, accessExpiration, "ACCESS")
+    }
+
     fun generateAccessToken(username: String): String {
         return generateToken(username, accessExpiration, "ACCESS")
     }

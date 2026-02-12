@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 
 @Component
-class JwtAuthenticationFilter(
+class JwtAuthenticationFilter (
     private val jwtProvider: JwtProvider,
     private val customUserDetailsService: CustomUserDetailsService
 ) : OncePerRequestFilter() {
@@ -25,27 +25,50 @@ class JwtAuthenticationFilter(
         filterChain: FilterChain
     ) {
         try {
-            val jwt = getJwtFromRequest(request)
-            if (jwt != null && jwtProvider.validateToken(jwt)) {
-                val username = jwtProvider.getUsernameFromToken(jwt)
-                val userDetails = customUserDetailsService.loadUserByUsername(username)
-
-                val authentication = UsernamePasswordAuthenticationToken(
-                    userDetails,
-                    null,
-                    userDetails.authorities
-                )
-                authentication.details = WebAuthenticationDetailsSource().buildDetails(request)
-
-                SecurityContextHolder.getContext().authentication = authentication
+            // Skip filter for public endpoints
+            if (isPublicEndpoint(request)) {
+                filterChain.doFilter(request, response)
+                return
             }
-        } catch (ex: InvalidTokenException) {
-            logger.error("Invalid JWT token: ${ex.message}")
+
+            val jwt = getJwtFromRequest(request)
+
+            if (jwt != null) {
+                try {
+                    if (jwtProvider.validateToken(jwt)) {
+                        val username = jwtProvider.getUsernameFromToken(jwt)
+                        val userDetails = customUserDetailsService.loadUserByUsername(username)
+
+                        val authentication = UsernamePasswordAuthenticationToken(
+                            userDetails,
+                            null,
+                            userDetails.authorities
+                        )
+                        authentication.details = WebAuthenticationDetailsSource().buildDetails(request)
+
+                        SecurityContextHolder.getContext().authentication = authentication
+                    }
+                } catch (ex: InvalidTokenException) {
+                    logger.error("Invalid JWT token: ${ex.message}")
+                } catch (ex: Exception) {
+                    logger.error("Could not set user authentication in security context", ex)
+                }
+            }
         } catch (ex: Exception) {
-            logger.error("Could not set user authentication in security context", ex)
+            logger.error("Error in JWT authentication filter", ex)
         }
 
         filterChain.doFilter(request, response)
+    }
+
+    private fun isPublicEndpoint(request: HttpServletRequest): Boolean {
+        val path = request.servletPath
+        return path.startsWith("/api/auth/") ||
+                path.startsWith("/error") ||
+                path.startsWith("/swagger-ui") ||
+                path.startsWith("/v3/api-docs") ||
+                path.startsWith("/actuator/health") ||
+                path == "/"
     }
 
     private fun getJwtFromRequest(request: HttpServletRequest): String? {
