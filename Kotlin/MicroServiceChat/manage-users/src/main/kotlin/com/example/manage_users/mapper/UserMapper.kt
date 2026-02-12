@@ -29,7 +29,7 @@ class UserMapper {
         )
     }
 
-    fun toAdminResponse(user: Users, lastLoginAt: LocalDateTime? = null): AdminDto.AdminUserResponse {
+    fun toAdminResponse(user: Users): AdminDto.AdminUserResponse {
         return AdminDto.AdminUserResponse(
             id = user.id,
             email = user.email,
@@ -41,7 +41,7 @@ class UserMapper {
             emailVerified = user.emailVerified,
             failedLoginAttempts = user.failedLoginAttempts,
             createdAt = user.createdAt,
-            lastLoginAt = lastLoginAt,
+            lastLoginAt = null,
             phoneNumber = user.phoneNumber,
             address = user.address,
             language = user.language,

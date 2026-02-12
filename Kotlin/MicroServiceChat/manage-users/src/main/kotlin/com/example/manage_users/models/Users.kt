@@ -22,7 +22,7 @@ data class Users (
 
     @Column(unique = true, nullable = false)
     @Email
-    val email: String,
+    var email: String,
 
     @Column(length = 100)
     var firstName: String? = null,
@@ -31,13 +31,13 @@ data class Users (
     var lastName: String? = null,
 
     @Column(nullable = false)
-    val password: String,
+    var password: String,
 
     @Column(name = "is_active")
     var isActive: Boolean = true,
 
     @CreationTimestamp
-    val createdAt: LocalDateTime = LocalDateTime.now(),
+    var createdAt: LocalDateTime = LocalDateTime.now(),
 
     @Enumerated(EnumType.STRING)
     var role: UserRole = UserRole.USER,
@@ -82,7 +82,8 @@ enum class UserStatus {
     INACTIVE,
     SUSPENDED,
     BLOCKED,
-    DELETED
+    DELETED,
+    PENDING
 }
 
 enum class Language {

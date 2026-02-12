@@ -30,6 +30,30 @@ spring:
     mode: HTML
     encoding: UTF-8
     cache: false
+    check-template-location: true
+    servlet:
+      content-type: text/html
+    enabled: true
+
+    # Mail configuration - comment out or provide dummy values for development
+    mail:
+      host: localhost # smtp.gmail.com
+      port: 12 # 587
+      username: dummy # ${MAIL_USERNAME:}  # Leave empty for development
+      password: dummy # ${MAIL_PASSWORD:}  # Leave empty for development
+      protocol: smtp
+      properties:
+        mail:
+          smtp:
+            auth: true
+            starttls:
+              enable: true
+              required: true
+            connectiontimeout: 5000
+            timeout: 5000
+            writetimeout: 5000
+      test-connection: false
+
 
 server:
   servlet:
@@ -45,8 +69,7 @@ server:
 
 logging:
   level:
-    org.springframework.web.socket: DEBUG
-    org.springframework.messaging: DEBUG
+    com.example.manage_users: DEBUG
     org.springframework.security: DEBUG
 
 eureka:
@@ -55,3 +78,12 @@ eureka:
       defaultZone: http://localhost:8405/eureka/
     register-with-eureka: true
     fetch-registry: true
+
+app:
+  jwt:
+    access-expiration: 3600000 # 1 hour
+    refresh-expiration: 604800000 # 7 days
+    email-verification-expiration: 86400000 # 24 hours
+    password-reset-expiration: 1800000 # 30 minutes
+    email-change-expiration: 3600000 # 1 hour
+    secret: mySecretKeyForJWTTokenGenerationAndValidationPurposesOnly1234567890

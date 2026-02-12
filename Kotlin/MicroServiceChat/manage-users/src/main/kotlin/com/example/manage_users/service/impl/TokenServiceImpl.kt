@@ -1,32 +1,51 @@
 package com.example.manage_users.service.impl
 
 import com.example.manage_users.execption.InvalidTokenException
+import com.example.manage_users.security.JwtProvider
 import com.example.manage_users.service.interf.TokenService
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 @Service
 class TokenServiceImpl  (
-    private val jwtTokenProvider: JwtTokenProvider
+    private val jwtTokenProvider: JwtProvider
 ) : TokenService {
 
     companion object {
         private val log = LoggerFactory.getLogger(TokenServiceImpl::class.java)
     }
 
+    // Token generation methods
     override fun generateVerificationToken(email: String): String {
-        return jwtTokenProvider.createEmailVerificationToken(email)
+        // This method is kept for backward compatibility
+        // In practice, we should use userId-based tokens
+        return jwtTokenProvider.generateAccessToken(email)
     }
 
+    override fun generatePasswordResetToken(email: String): String {
+        // This method is kept for backward compatibility
+        return jwtTokenProvider.generateAccessToken(email)
+    }
+
+    // UserId-based token methods
+    override fun createEmailVerificationToken(userId: Long): String {
+        return jwtTokenProvider.createEmailVerificationToken(userId)
+    }
+
+    override fun createPasswordResetToken(userId: Long): String {
+        return jwtTokenProvider.createPasswordResetToken(userId)
+    }
+
+    override fun createEmailChangeToken(userId: Long, newEmail: String): String {
+        return jwtTokenProvider.createEmailChangeToken(userId, newEmail)
+    }
+
+    // Validation methods
     override fun validateVerificationToken(token: String): String {
         if (!jwtTokenProvider.validateEmailVerificationToken(token)) {
             throw InvalidTokenException("Invalid verification token")
         }
         return jwtTokenProvider.getEmailFromToken(token)
-    }
-
-    override fun generatePasswordResetToken(email: String): String {
-        return jwtTokenProvider.createPasswordResetToken(email)
     }
 
     override fun validatePasswordResetToken(token: String): String {
@@ -36,13 +55,38 @@ class TokenServiceImpl  (
         return jwtTokenProvider.getEmailFromToken(token)
     }
 
-    override fun invalidateAllUserTokens(userId: Long) {
-        // In a real implementation, you would:
-        // 1. Add current tokens to a blacklist
-        // 2. Or delete them from the database
-        // 3. Or mark them as invalid
+    override fun validateEmailVerificationToken(token: String): Long {
+        if (!jwtTokenProvider.validateEmailVerificationToken(token)) {
+            throw InvalidTokenException("Invalid email verification token")
+        }
+        return jwtTokenProvider.getUserIdFromToken(token)
+    }
 
-        // For now, we'll just log it
+    override fun validateEmailChangeToken(token: String, userId: Long): String {
+        if (!jwtTokenProvider.validateEmailChangeToken(token)) {
+            throw InvalidTokenException("Invalid email change token")
+        }
+        val tokenUserId = jwtTokenProvider.getUserIdFromToken(token)
+        if (tokenUserId != userId) {
+            throw InvalidTokenException("Token does not belong to this user")
+        }
+        return jwtTokenProvider.getNewEmailFromToken(token)
+    }
+
+    // Deletion methods (in a real app, these would add tokens to a blacklist)
+    override fun deleteEmailVerificationToken(token: String) {
+        log.info("Email verification token invalidated: $token")
+    }
+
+    override fun deletePasswordResetToken(token: String) {
+        log.info("Password reset token invalidated: $token")
+    }
+
+    override fun deleteEmailChangeToken(token: String) {
+        log.info("Email change token invalidated: $token")
+    }
+
+    override fun invalidateAllUserTokens(userId: Long) {
         log.info("All tokens invalidated for user: $userId")
     }
 

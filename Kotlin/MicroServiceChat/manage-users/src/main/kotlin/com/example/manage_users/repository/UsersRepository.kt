@@ -1,5 +1,6 @@
 package com.example.manage_users.repository
 
+import com.example.manage_users.models.Language
 import com.example.manage_users.models.UserRole
 import com.example.manage_users.models.UserStatus
 import com.example.manage_users.models.Users
@@ -13,6 +14,8 @@ import java.time.LocalDateTime
 import java.util.Optional
 
 interface UsersRepository : JpaRepository<Users, Long> {
+
+    fun findByLanguage(language: Language): List<Users>
 
     fun findByEmail(email: String): Optional<Users>
 

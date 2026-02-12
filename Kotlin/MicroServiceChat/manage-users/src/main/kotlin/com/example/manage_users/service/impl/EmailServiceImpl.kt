@@ -1,6 +1,9 @@
 package com.example.manage_users.service.impl
 
+import com.example.manage_users.models.UserRole
+import com.example.manage_users.models.UserStatus
 import com.example.manage_users.models.Users
+import com.example.manage_users.security.JwtProvider
 import com.example.manage_users.service.interf.EmailService
 import jakarta.mail.internet.MimeMessage
 import org.slf4j.LoggerFactory
@@ -16,8 +19,8 @@ import org.springframework.stereotype.Service
 class EmailServiceImpl (
     private val mailSender: JavaMailSender,
     private val templateEngine: TemplateEngine,
-    private val jwtTokenProvider: JwtTokenProvider,
-    @Value("\${app.base-url:http://localhost:8080}")
+    private val jwtTokenProvider: JwtProvider,
+    @Value("\${app.base-url:http://localhost:8082}")
     private val baseUrl: String,
     @Value("\${app.email.from:support@example.com}")
     private val fromEmail: String
@@ -30,8 +33,8 @@ class EmailServiceImpl (
     @Async
     override fun sendEmailVerification(user: Users) {
         try {
-            val token = jwtTokenProvider.createEmailVerificationToken(user.email)
-            val verificationUrl = "$baseUrl/api/v1/auth/verify-email?token=$token"
+            val token = jwtTokenProvider.createEmailVerificationToken(user.id)
+            val verificationUrl = "$baseUrl/api/auth/verify-email?token=$token"
 
             val context = Context().apply {
                 setVariable("user", user)
@@ -42,7 +45,7 @@ class EmailServiceImpl (
 
             sendEmail(
                 to = user.email,
-                subject = "Vérification de votre adresse email",
+                subject = "Email Verification",
                 content = content
             )
 
@@ -55,8 +58,8 @@ class EmailServiceImpl (
     @Async
     override fun sendPasswordResetEmail(user: Users) {
         try {
-            val token = jwtTokenProvider.createPasswordResetToken(user.email)
-            val resetUrl = "$baseUrl/api/v1/auth/reset-password?token=$token"
+            val token = jwtTokenProvider.createPasswordResetToken(user.id)
+            val resetUrl = "$baseUrl/api/auth/reset-password?token=$token"
 
             val context = Context().apply {
                 setVariable("user", user)
@@ -67,7 +70,7 @@ class EmailServiceImpl (
 
             sendEmail(
                 to = user.email,
-                subject = "Réinitialisation de votre mot de passe",
+                subject = "Password Reset Request",
                 content = content
             )
 
@@ -89,7 +92,7 @@ class EmailServiceImpl (
 
             sendEmail(
                 to = user.email,
-                subject = "Votre compte a été verrouillé",
+                subject = "Your Account Has Been Locked",
                 content = content
             )
 
@@ -111,7 +114,7 @@ class EmailServiceImpl (
 
             sendEmail(
                 to = user.email,
-                subject = "Bienvenue sur notre plateforme",
+                subject = "Welcome to Our Platform",
                 content = content
             )
 
@@ -130,25 +133,142 @@ class EmailServiceImpl (
                 setVariable("newEmail", user.email)
             }
 
-            val content = templateEngine.process("email/email-changed", context)
-
             // Send to old email
             sendEmail(
                 to = oldEmail,
-                subject = "Votre adresse email a été modifiée",
+                subject = "Your Email Address Has Been Changed",
                 content = templateEngine.process("email/email-changed-old", context)
             )
 
             // Send to new email
             sendEmail(
                 to = user.email,
-                subject = "Confirmation de changement d'adresse email",
-                content = content
+                subject = "Email Change Confirmation",
+                content = templateEngine.process("email/email-changed", context)
             )
 
             log.info("Email changed notifications sent")
         } catch (ex: Exception) {
             log.error("Failed to send email changed notifications", ex)
+        }
+    }
+
+    @Async
+    override fun sendVerificationEmail(email: String, token: String) {
+        try {
+            val verificationUrl = "$baseUrl/api/auth/verify-email?token=$token"
+
+            val context = Context().apply {
+                setVariable("email", email)
+                setVariable("verificationUrl", verificationUrl)
+            }
+
+            val content = templateEngine.process("email/email-verification", context)
+
+            sendEmail(
+                to = email,
+                subject = "Email Verification",
+                content = content
+            )
+
+            log.info("Verification email sent to: $email")
+        } catch (ex: Exception) {
+            log.error("Failed to send verification email to $email", ex)
+        }
+    }
+
+    @Async
+    override fun sendPasswordResetEmail(email: String, token: String) {
+        try {
+            val resetUrl = "$baseUrl/api/auth/reset-password?token=$token"
+
+            val context = Context().apply {
+                setVariable("email", email)
+                setVariable("resetUrl", resetUrl)
+            }
+
+            val content = templateEngine.process("email/password-reset", context)
+
+            sendEmail(
+                to = email,
+                subject = "Password Reset Request",
+                content = content
+            )
+
+            log.info("Password reset email sent to: $email")
+        } catch (ex: Exception) {
+            log.error("Failed to send password reset email to $email", ex)
+        }
+    }
+
+    @Async
+    override fun sendEmailChangeConfirmation(email: String, token: String) {
+        try {
+            val confirmUrl = "$baseUrl/api/profile/email-change-confirm?token=$token"
+
+            val context = Context().apply {
+                setVariable("email", email)
+                setVariable("confirmUrl", confirmUrl)
+            }
+
+            val content = templateEngine.process("email/email-change-confirmation", context)
+
+            sendEmail(
+                to = email,
+                subject = "Confirm Your Email Change",
+                content = content
+            )
+
+            log.info("Email change confirmation sent to: $email")
+        } catch (ex: Exception) {
+            log.error("Failed to send email change confirmation to $email", ex)
+        }
+    }
+
+    @Async
+    override fun sendStatusChangeNotification(email: String, status: UserStatus, reason: String?) {
+        try {
+            val context = Context().apply {
+                setVariable("email", email)
+                setVariable("status", status)
+                setVariable("reason", reason ?: "No reason provided")
+                setVariable("supportEmail", "support@example.com")
+            }
+
+            val content = templateEngine.process("email/status-change", context)
+
+            sendEmail(
+                to = email,
+                subject = "Your Account Status Has Been Updated",
+                content = content
+            )
+
+            log.info("Status change notification sent to: $email")
+        } catch (ex: Exception) {
+            log.error("Failed to send status change notification to $email", ex)
+        }
+    }
+
+    @Async
+    override fun sendRoleChangeNotification(email: String, role: UserRole, reason: String?) {
+        try {
+            val context = Context().apply {
+                setVariable("email", email)
+                setVariable("role", role)
+                setVariable("reason", reason ?: "No reason provided")
+            }
+
+            val content = templateEngine.process("email/role-change", context)
+
+            sendEmail(
+                to = email,
+                subject = "Your Account Role Has Been Updated",
+                content = content
+            )
+
+            log.info("Role change notification sent to: $email")
+        } catch (ex: Exception) {
+            log.error("Failed to send role change notification to $email", ex)
         }
     }
 
