@@ -68,6 +68,11 @@ data class Users (
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     var theme: Theme = Theme.LIGHT,
+
+    var provider: String? = null,
+
+    var providerId: String? = null
+
 )
 
 enum class UserRole {

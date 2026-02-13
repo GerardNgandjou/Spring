@@ -1,5 +1,6 @@
 package com.example.manage_users.service.impl
 
+import com.example.manage_users.config.SecurityConfig
 import com.example.manage_users.dto.AdminDto
 import com.example.manage_users.dto.ProfileDto
 import com.example.manage_users.execption.BadRequestException
@@ -27,7 +28,7 @@ import java.time.LocalDateTime
 @Transactional
 class UserServiceImpl (
     private val usersRepository: UsersRepository,
-    private val passwordEncoder: PasswordEncoder,
+    private val securityConfig: SecurityConfig,
     private val userMapper: UserMapper,
     private val tokenService: TokenService,
     private val emailService: EmailService
@@ -80,7 +81,7 @@ class UserServiceImpl (
     override fun changePassword(userId: Long, request: ProfileDto.PasswordChangeRequest) {
         val user = findUserById(userId)
 
-        if (!passwordEncoder.matches(request.currentPassword, user.password)) {
+        if (!securityConfig.passwordEncoder().matches(request.currentPassword, user.password)) {
             throw InvalidPasswordException("Current password is incorrect")
         }
 
@@ -88,14 +89,14 @@ class UserServiceImpl (
             throw BadRequestException("New passwords do not match")
         }
 
-        user.password = passwordEncoder.encode(request.newPassword)
+        user.password = securityConfig.passwordEncoder().encode(request.newPassword)
         usersRepository.save(user)
     }
 
     override fun requestEmailChange(userId: Long, request: ProfileDto.EmailUpdateRequest) {
         val user = findUserById(userId)
 
-        if (!passwordEncoder.matches(request.password, user.password)) {
+        if (!securityConfig.passwordEncoder().matches(request.password, user.password)) {
             throw InvalidPasswordException("Password is incorrect")
         }
 

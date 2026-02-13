@@ -1,20 +1,22 @@
 package com.example.manage_users.security
 
-import com.example.manage_users.execption.InvalidTokenException
+import com.example.manage_users.service.interf.UsersService
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.core.userdetails.UserDetailsService
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource
 import org.springframework.stereotype.Component
+import org.springframework.util.StringUtils
 import org.springframework.web.filter.OncePerRequestFilter
 
 @Component
 class JwtAuthenticationFilter (
     private val jwtProvider: JwtProvider,
-    private val customUserDetailsService: CustomUserDetailsService
+    private val userDetailsService: UserDetailsService
 ) : OncePerRequestFilter() {
 
     private val logger = LoggerFactory.getLogger(JwtAuthenticationFilter::class.java)
@@ -33,11 +35,11 @@ class JwtAuthenticationFilter (
 
             val jwt = getJwtFromRequest(request)
 
-            if (jwt != null) {
+            if (StringUtils.hasText(jwt)) {
                 try {
                     if (jwtProvider.validateToken(jwt)) {
                         val username = jwtProvider.getUsernameFromToken(jwt)
-                        val userDetails = customUserDetailsService.loadUserByUsername(username)
+                        val userDetails = userDetailsService.loadUserByUsername(username)
 
                         val authentication = UsernamePasswordAuthenticationToken(
                             userDetails,
@@ -48,8 +50,6 @@ class JwtAuthenticationFilter (
 
                         SecurityContextHolder.getContext().authentication = authentication
                     }
-                } catch (ex: InvalidTokenException) {
-                    logger.error("Invalid JWT token: ${ex.message}")
                 } catch (ex: Exception) {
                     logger.error("Could not set user authentication in security context", ex)
                 }
@@ -64,6 +64,8 @@ class JwtAuthenticationFilter (
     private fun isPublicEndpoint(request: HttpServletRequest): Boolean {
         val path = request.servletPath
         return path.startsWith("/api/auth/") ||
+                path.startsWith("/oauth2/") ||
+                path.startsWith("/login/oauth2/") ||
                 path.startsWith("/error") ||
                 path.startsWith("/swagger-ui") ||
                 path.startsWith("/v3/api-docs") ||
@@ -73,8 +75,10 @@ class JwtAuthenticationFilter (
 
     private fun getJwtFromRequest(request: HttpServletRequest): String? {
         val bearerToken = request.getHeader("Authorization")
-        return if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
+        return if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
             bearerToken.substring(7)
-        } else null
+        } else {
+            null
+        }
     }
 }

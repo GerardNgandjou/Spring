@@ -1,10 +1,12 @@
 package com.example.manage_users.config
 
+import com.example.manage_users.security.JwtAuthenticationFilter
 import com.example.manage_users.security.JwtProvider
-import com.example.manage_users.service.interf.UsersService
+import com.example.manage_users.security.OAuth2SuccessHandler
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.authentication.AuthenticationManager
+import org.springframework.security.authentication.AuthenticationProvider
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
@@ -12,6 +14,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.core.GrantedAuthority
+import org.springframework.security.core.userdetails.UserDetailsService
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository
@@ -28,42 +31,54 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration
 import org.springframework.web.cors.CorsConfigurationSource
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource
-import java.util.*
 
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 class SecurityConfig(
-    private val usersService: UsersService,
-    private val jwtTokenProvider: JwtProvider,
+    private val userDetailsService: UserDetailsService,
+    private val jwtAuthenticationFilter: JwtAuthenticationFilter,
+    private val jwtProvider: JwtProvider,
+    private val oAuth2AuthenticationSuccessHandler: OAuth2SuccessHandler,
     private val clientRegistrationRepository: ClientRegistrationRepository
 ) {
 
     @Bean
-    fun filterChain(http: HttpSecurity): SecurityFilterChain {
+    fun securityFilterChain(
+        http: HttpSecurity,
+        authenticationProvider: AuthenticationProvider
+    ): SecurityFilterChain {
         http
-            .cors { cors -> cors.configurationSource(corsConfigurationSource()) }
-            .csrf { csrf -> csrf.disable() }
+            .csrf { it.disable() }
+            .cors { it.configurationSource(corsConfigurationSource()) }
             .sessionManagement { session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             }
-            .authorizeHttpRequests { authz ->
-                authz
+            .authorizeHttpRequests { authorize ->
+                authorize
                     // Public endpoints
                     .requestMatchers(
-                        "/api/v1/auth/**",
+                        "/api/auth/**",
+                        "/oauth2/**",
+                        "/login/oauth2/**",
+                        "/error",
+                        "/actuator/health",
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
                         "/swagger-resources/**",
-                        "/webjars/**",
-                        "/actuator/health"
+                        "/webjars/**"
                     ).permitAll()
-                    // OAuth2 callback endpoint
-                    .requestMatchers("/oauth2/**").permitAll()
-                    // User profile endpoints (authenticated users)
-                    .requestMatchers("/api/v1/users/profile/**").authenticated()
-                    // Admin endpoints (require ADMIN role)
-                    .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+
+                    // Profile endpoints - authenticated users
+                    .requestMatchers("/api/profile/**").authenticated()
+
+                    // Admin endpoints - require ADMIN role
+                    .requestMatchers("/api/admin/**").hasRole("ADMIN")
+
+                    // Statistics endpoints - require ADMIN role
+                    .requestMatchers("/api/admin/statistics/**").hasRole("ADMIN")
+
+                    // All other requests require authentication
                     .anyRequest().authenticated()
             }
             .oauth2Login { oauth2 ->
@@ -71,45 +86,28 @@ class SecurityConfig(
                     .authorizationEndpoint { authorizationEndpoint ->
                         authorizationEndpoint
                             .authorizationRequestResolver(authorizationRequestResolver())
-                            .baseUri("/api/v1/oauth2/authorization")
+                            .baseUri("/oauth2/authorization")
                     }
                     .redirectionEndpoint { redirectionEndpoint ->
-                        redirectionEndpoint.baseUri("/api/v1/oauth2/callback/*")
+                        redirectionEndpoint.baseUri("/login/oauth2/code/*")
                     }
                     .userInfoEndpoint { userInfoEndpoint ->
                         userInfoEndpoint.userService(oAuth2UserService())
                     }
-                    .successHandler(oAuth2SuccessHandler())
+                    .successHandler(oAuth2AuthenticationSuccessHandler)
+                    .failureUrl("/login?error=true")
             }
-            .exceptionHandling { exceptions ->
-                exceptions
-                    .authenticationEntryPoint { request, response, authException ->
-                        response.sendError(401, "Unauthorized")
-                    }
-                    .accessDeniedHandler { request, response, accessDeniedException ->
-                        response.sendError(403, "Access Denied")
-                    }
-            }
-
-        // Add JWT filter before the OAuth2 filter
-        http.addFilterBefore(
-            JwtAuthenticationFilter(jwtTokenProvider, usersService),
-            UsernamePasswordAuthenticationFilter::class.java
-        )
+            .authenticationProvider(authenticationProvider)
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)
 
         return http.build()
     }
 
     @Bean
-    fun authenticationManager(authenticationConfiguration: AuthenticationConfiguration): AuthenticationManager {
-        return authenticationConfiguration.authenticationManager
-    }
-
-    @Bean
-    fun authenticationProvider(): DaoAuthenticationProvider {
+    fun authenticationProvider(passwordEncoder: PasswordEncoder): AuthenticationProvider {
         val authProvider = DaoAuthenticationProvider()
-        authProvider.setUserDetailsService(usersService)
-        authProvider.setPasswordEncoder(passwordEncoder())
+        authProvider.setUserDetailsService(userDetailsService)
+        authProvider.setPasswordEncoder(passwordEncoder)
         return authProvider
     }
 
@@ -119,13 +117,23 @@ class SecurityConfig(
     }
 
     @Bean
+    fun authenticationManager(config: AuthenticationConfiguration): AuthenticationManager {
+        return config.authenticationManager
+    }
+
+    @Bean
     fun corsConfigurationSource(): CorsConfigurationSource {
         val configuration = CorsConfiguration()
-        configuration.allowedOrigins = listOf("http://localhost:3000", "http://localhost:8080")
+        configuration.allowedOrigins = listOf(
+            "http://localhost:3000",
+            "http://localhost:4200",
+            "http://localhost:8080"
+        )
         configuration.allowedMethods = listOf("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
         configuration.allowedHeaders = listOf("*")
         configuration.allowCredentials = true
         configuration.exposedHeaders = listOf("Authorization")
+        configuration.maxAge = 3600L
 
         val source = UrlBasedCorsConfigurationSource()
         source.registerCorsConfiguration("/**", configuration)
@@ -133,25 +141,22 @@ class SecurityConfig(
     }
 
     @Bean
-    fun authorizationRequestResolver(): OAuth2AuthorizationRequestResolver {
+    fun authorizationRequestResolver(): DefaultOAuth2AuthorizationRequestResolver {
         val defaultResolver = DefaultOAuth2AuthorizationRequestResolver(
             clientRegistrationRepository,
             OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI
         )
 
-        return OAuth2AuthorizationRequestResolver { request ->
-            val authorizationRequest: OAuth2AuthorizationRequest? = defaultResolver.resolve(request)
-
-            // Customize the authorization request if needed
-            authorizationRequest?.let {
-                OAuth2AuthorizationRequest.from(authorizationRequest)
-                    .additionalParameters { params ->
-                        // Add custom parameters
-                        params["prompt"] = "consent"
-                    }
-                    .build()
-            }
+        // Customize the authorization request
+        defaultResolver.setAuthorizationRequestCustomizer { customizer ->
+            customizer
+                .additionalParameters { params ->
+                    params["prompt"] = "consent"
+                    params["access_type"] = "offline"
+                }
         }
+
+        return defaultResolver
     }
 
     @Bean
@@ -162,32 +167,20 @@ class SecurityConfig(
             val oAuth2User = delegate.loadUser(userRequest)
 
             // Extract user information from OAuth2 provider
-            val email = oAuth2User.getAttribute<String>("email") ?:
-            oAuth2User.getAttribute<String>("sub") + "@" + userRequest.clientRegistration.registrationId + ".com"
+            val attributes = oAuth2User.attributes
+            val email = oAuth2User.getAttribute<String>("email")
             val name = oAuth2User.getAttribute<String>("name") ?: ""
-            val firstName = name.split(" ").firstOrNull() ?: ""
-            val lastName = name.split(" ").lastOrNull() ?: ""
+            val firstName = oAuth2User.getAttribute<String>("given_name") ?: name.split(" ").firstOrNull() ?: ""
+            val lastName = oAuth2User.getAttribute<String>("family_name") ?: name.split(" ").drop(1).joinToString(" ")
 
-            // Here you would typically:
-            // 1. Check if user exists in your database by email
-            // 2. If not, create a new user
-            // 3. Generate JWT token for the user
-            // 4. Return custom user details
-
-            // For now, return a custom OAuth2User with authorities
+            // Create a custom OAuth2User with extracted attributes
             object : OAuth2User {
-                override fun getName(): String = email
-                override fun getAttributes(): Map<String, Any> = oAuth2User.attributes
+                override fun getName(): String = email ?: name
+                override fun getAttributes(): Map<String, Any> = attributes
                 override fun getAuthorities(): Collection<GrantedAuthority> {
-                    // Return appropriate authorities based on your user
-                    return listOf()
+                    return oAuth2User.authorities
                 }
             }
         }
-    }
-
-    @Bean
-    fun oAuth2SuccessHandler(): OAuth2SuccessHandler {
-        return OAuth2SuccessHandler(jwtTokenProvider, usersService)
     }
 }

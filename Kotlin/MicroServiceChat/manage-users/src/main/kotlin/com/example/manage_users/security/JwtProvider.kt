@@ -77,14 +77,14 @@ class JwtProvider (
             .compact()
     }
 
-    fun getUsernameFromToken(token: String): String {
-        val claims = Jwts.parserBuilder()
-            .setSigningKey(key)
-            .build()
-            .parseClaimsJws(token)
-            .body
-        return claims.subject
-    }
+//    fun getUsernameFromToken(token: String): String {
+//        val claims = Jwts.parserBuilder()
+//            .setSigningKey(key)
+//            .build()
+//            .parseClaimsJws(token)
+//            .body
+//        return claims.subject
+//    }
 
     private fun generateToken(subject: String, expiration: Long, tokenType: String): String {
         val now = Date()
@@ -119,7 +119,9 @@ class JwtProvider (
         return claims.get("type", String::class.java)
     }
 
-    fun validateToken(token: String): Boolean {
+//    / JwtProvider.kt - Méthodes modifiées
+    fun validateToken(token: String?): Boolean {
+        if (token == null) return false
         return try {
             parseClaims(token)
             true
@@ -132,6 +134,16 @@ class JwtProvider (
         } catch (ex: IllegalArgumentException) {
             throw InvalidTokenException("JWT claims string is empty")
         }
+    }
+
+    fun getUsernameFromToken(token: String?): String {
+        requireNotNull(token) { "Token cannot be null" }
+        val claims = Jwts.parserBuilder()
+            .setSigningKey(key)
+            .build()
+            .parseClaimsJws(token)
+            .body
+        return claims.subject
     }
 
     fun validateEmailVerificationToken(token: String): Boolean {
